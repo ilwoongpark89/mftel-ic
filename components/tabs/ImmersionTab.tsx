@@ -1,248 +1,398 @@
 "use client";
-import { useState, useMemo } from "react";
-import ResultCard from "@/components/calculator/ResultCard";
-import CoolingChart from "@/components/charts/CoolingChart";
-import { ChipSpec } from "@/components/calculator/InputForm";
+import { useState, useEffect, useMemo } from "react";
 import {
-  calcImmersion,
-  ImmersionParams,
-  CoolingMethod,
-} from "@/lib/thermal-calc";
-import { fluids, fluidKeys, surfaces, surfaceKeys } from "@/data/fluids";
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  ReferenceLine, Legend, ScatterChart, Scatter, ZAxis,
+} from "recharts";
+import { ChipSpec } from "@/components/calculator/InputForm";
+import { BoilingDataset, BoilingDataPoint, loadDatasets } from "@/lib/boiling-data";
 
 interface Props {
   spec: ChipSpec;
 }
 
-const ANGLE_PRESETS = [
-  { value: 0, label: "0° (Horizontal Up)" },
-  { value: 30, label: "30°" },
-  { value: 45, label: "45°" },
-  { value: 60, label: "60°" },
-  { value: 90, label: "90° (Vertical)" },
-  { value: 135, label: "135°" },
-  { value: 180, label: "180° (Horizontal Down)" },
+// ── Filter options ──
+const FLUID_OPTIONS = ["All", "Novec 7100", "FC-72", "HFE-7200", "HFE-7100", "Water", "R-113", "R-134a", "Other"];
+const SURFACE_OPTIONS = ["All", "Plain", "Microporous", "Nanostructured", "Finned", "Sintered", "Coated", "LIG", "Other"];
+const SUBCOOLING_OPTIONS = ["All", "Saturated (0 K)", "0–5 K", "5–15 K", "15–30 K", "> 30 K"];
+const PRESSURE_OPTIONS = ["All", "1 atm", "Sub-atmospheric", "Elevated (> 1 atm)"];
+
+// ── Demo boiling curves ──
+const DEMO_CURVES: { name: string; color: string; data: BoilingDataPoint[] }[] = [
+  {
+    name: "Novec 7100 — Plain Cu",
+    color: "#22d3ee",
+    data: [
+      { tSurf: 61, qFlux: 0 }, { tSurf: 65, qFlux: 8 }, { tSurf: 70, qFlux: 25 },
+      { tSurf: 75, qFlux: 55 }, { tSurf: 80, qFlux: 95 }, { tSurf: 85, qFlux: 140 },
+      { tSurf: 90, qFlux: 180 }, { tSurf: 95, qFlux: 210 },
+    ],
+  },
+  {
+    name: "Novec 7100 — Microporous",
+    color: "#34d399",
+    data: [
+      { tSurf: 61, qFlux: 0 }, { tSurf: 63, qFlux: 15 }, { tSurf: 66, qFlux: 45 },
+      { tSurf: 70, qFlux: 100 }, { tSurf: 74, qFlux: 170 }, { tSurf: 78, qFlux: 250 },
+      { tSurf: 82, qFlux: 320 }, { tSurf: 86, qFlux: 370 },
+    ],
+  },
+  {
+    name: "FC-72 — Plain Cu",
+    color: "#f472b6",
+    data: [
+      { tSurf: 56, qFlux: 0 }, { tSurf: 60, qFlux: 5 }, { tSurf: 65, qFlux: 18 },
+      { tSurf: 70, qFlux: 42 }, { tSurf: 75, qFlux: 80 }, { tSurf: 80, qFlux: 120 },
+      { tSurf: 85, qFlux: 155 }, { tSurf: 90, qFlux: 175 },
+    ],
+  },
 ];
 
-const METHODS: CoolingMethod[] = ["forced", "immersion"];
+/** Merge all selected data points, sort by tSurf, and produce a single averaged curve */
+function mergeBoilingData(datasets: BoilingDataset[]): BoilingDataPoint[] {
+  // Collect all points
+  const allPoints: BoilingDataPoint[] = [];
+  for (const ds of datasets) {
+    for (const p of ds.data) allPoints.push(p);
+  }
+  if (allPoints.length === 0) return [];
+
+  // Sort by tSurf
+  allPoints.sort((a, b) => a.tSurf - b.tSurf);
+
+  // Bin by tSurf (round to nearest 0.5°C) and average qFlux
+  const bins = new Map<number, { sum: number; count: number }>();
+  for (const p of allPoints) {
+    const key = Math.round(p.tSurf * 2) / 2; // 0.5°C bins
+    const bin = bins.get(key);
+    if (bin) { bin.sum += p.qFlux; bin.count++; }
+    else bins.set(key, { sum: p.qFlux, count: 1 });
+  }
+
+  const merged: BoilingDataPoint[] = [];
+  for (const [tSurf, { sum, count }] of bins) {
+    merged.push({ tSurf, qFlux: Math.round((sum / count) * 1000) / 1000 });
+  }
+  merged.sort((a, b) => a.tSurf - b.tSurf);
+  return merged;
+}
+
+/** Interpolate qFlux at a given tSurf from a sorted curve */
+function interpolateQ(curve: BoilingDataPoint[], tSurf: number): number | null {
+  if (curve.length < 2) return null;
+  if (tSurf <= curve[0].tSurf) return curve[0].qFlux;
+  if (tSurf >= curve[curve.length - 1].tSurf) return curve[curve.length - 1].qFlux;
+  for (let i = 0; i < curve.length - 1; i++) {
+    if (tSurf >= curve[i].tSurf && tSurf <= curve[i + 1].tSurf) {
+      const frac = (tSurf - curve[i].tSurf) / (curve[i + 1].tSurf - curve[i].tSurf);
+      return curve[i].qFlux + frac * (curve[i + 1].qFlux - curve[i].qFlux);
+    }
+  }
+  return null;
+}
+
+/** Interpolate tSurf at a given qFlux from a sorted-by-qFlux curve */
+function interpolateT(curve: BoilingDataPoint[], qFlux: number): number | null {
+  const sorted = [...curve].sort((a, b) => a.qFlux - b.qFlux);
+  if (sorted.length < 2) return null;
+  if (qFlux <= sorted[0].qFlux) return sorted[0].tSurf;
+  if (qFlux >= sorted[sorted.length - 1].qFlux) return sorted[sorted.length - 1].tSurf;
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (qFlux >= sorted[i].qFlux && qFlux <= sorted[i + 1].qFlux) {
+      const frac = (qFlux - sorted[i].qFlux) / (sorted[i + 1].qFlux - sorted[i].qFlux);
+      return sorted[i].tSurf + frac * (sorted[i + 1].tSurf - sorted[i].tSurf);
+    }
+  }
+  return null;
+}
 
 export default function ImmersionTab({ spec }: Props) {
-  const [fluidKey, setFluidKey] = useState("novec-7100");
-  const [surfaceKey, setSurfaceKey] = useState("plain");
-  const [fluidTemp, setFluidTemp] = useState(50);
-  const [angle, setAngle] = useState(0);
-  const [flowVelocity, setFlowVelocity] = useState(0);
+  const [datasets, setDatasets] = useState<BoilingDataset[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  const fluid = fluids[fluidKey];
-  const surface = surfaces[surfaceKey];
+  // Filters
+  const [filterFluid, setFilterFluid] = useState("All");
+  const [filterSurface, setFilterSurface] = useState("All");
+  const [filterSubcooling, setFilterSubcooling] = useState("All");
+  const [filterOrientation, setFilterOrientation] = useState(0); // 0-180 slider
+  const [filterPressure, setFilterPressure] = useState("All");
 
-  const immersionParams: ImmersionParams = useMemo(() => ({
-    fluidKey, surfaceKey, fluidTemp, angle, flowVelocity,
-  }), [fluidKey, surfaceKey, fluidTemp, angle, flowVelocity]);
+  useEffect(() => {
+    setDatasets(loadDatasets());
+  }, []);
 
-  const immersion = useMemo(
-    () => calcImmersion(spec.tdp, spec.chipArea, immersionParams),
-    [spec.tdp, spec.chipArea, immersionParams]
-  );
+  const toggleDataset = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
-  // Forced conv baseline for comparison
-  const forcedH = 80;
-  const forcedQPP = spec.tdp / (spec.chipArea * 1e-6);
-  const forcedDT = forcedQPP / forcedH;
-  const forcedChipTemp = Math.round((spec.ambientTemp + forcedDT) * 10) / 10;
-  const forcedPower = Math.round(spec.tdp * 0.04 + 15);
+  // Filter datasets (metadata-based, best-effort)
+  const filteredDatasets = useMemo(() => {
+    return datasets.filter((ds) => {
+      const meta = ds.experiment || ds.literature;
+      if (!meta) return true; // no metadata = always show
+      if (filterFluid !== "All") {
+        const fluid = (meta as Record<string, string | undefined>).fluid;
+        if (fluid && !fluid.toLowerCase().includes(filterFluid.toLowerCase())) return false;
+      }
+      if (filterSurface !== "All") {
+        const surf = ds.experiment?.surfaceModification || ds.experiment?.baseSurface || (ds.literature as Record<string, string | undefined>)?.surfaceType;
+        if (surf && !surf.toLowerCase().includes(filterSurface.toLowerCase())) return false;
+      }
+      return true;
+    });
+  }, [datasets, filterFluid, filterSurface]);
 
-  const savingsW = forcedPower - immersion.coolingPower;
-  const savingsPct = forcedPower > 0 ? Math.round((savingsW / forcedPower) * 100) : 0;
+  // Current operating point
+  const currentQFlux = useMemo(() => {
+    const A = spec.chipArea * 1e-6;
+    return spec.tdp / A / 1000; // kW/m²
+  }, [spec.tdp, spec.chipArea]);
 
-  const inp = "w-full mt-1 px-3 py-2 bg-[#1a1a2e] border border-[#0f3460] text-cyan-100 rounded font-mono text-sm focus:outline-none focus:border-cyan-400";
+  const selectedDs = filteredDatasets.filter((d) => selectedIds.includes(d.id));
+  const hasUserData = datasets.length > 0;
+  const hasSelection = selectedDs.length > 0;
+
+  // Merged single boiling curve from all selected datasets
+  const mergedCurve = useMemo(() => {
+    if (!hasSelection) return [];
+    return mergeBoilingData(selectedDs);
+  }, [selectedDs, hasSelection]);
+
+  // All raw scatter points for overlay
+  const scatterPoints = useMemo(() => {
+    const pts: { tSurf: number; qFlux: number; name: string }[] = [];
+    for (const ds of selectedDs) {
+      for (const p of ds.data) pts.push({ ...p, name: ds.name });
+    }
+    return pts;
+  }, [selectedDs]);
+
+  // Interpolate T_surf at current q'' from merged curve
+  const interpolatedTemp = useMemo(() => {
+    if (mergedCurve.length < 2) return null;
+    const t = interpolateT(mergedCurve, currentQFlux);
+    return t !== null ? Math.round(t * 10) / 10 : null;
+  }, [mergedCurve, currentQFlux]);
+
+  // Chart data for merged curve
+  const chartData = useMemo(() => {
+    if (mergedCurve.length === 0) return null;
+    return mergedCurve.map((p) => ({ tSurf: p.tSurf, qFlux: p.qFlux }));
+  }, [mergedCurve]);
+
+  // Demo chart data
+  const demoChartData = useMemo(() => {
+    const tSet = new Set<number>();
+    for (const c of DEMO_CURVES) for (const p of c.data) tSet.add(p.tSurf);
+    const sorted = [...tSet].sort((a, b) => a - b);
+    return sorted.map((t) => {
+      const point: Record<string, number> = { tSurf: t };
+      for (const c of DEMO_CURVES) {
+        const match = c.data.find((p) => p.tSurf === t);
+        if (match) point[c.name] = match.qFlux;
+      }
+      return point;
+    });
+  }, []);
+
+  const inp = "w-full px-3 py-2 bg-[#1a1a2e] border border-[#0f3460] text-cyan-100 rounded font-mono text-sm focus:outline-none focus:border-cyan-400";
   const lbl = "text-gray-400 text-[10px] font-mono uppercase tracking-wider";
 
   return (
     <div className="space-y-6">
-      {/* Parameter controls */}
+      {/* Filter bar */}
       <div className="p-5 rounded-xl border bg-[#16213e] border-[#0f3460]">
         <h3 className="text-sm font-bold text-cyan-400 font-mono tracking-wider mb-4">
-          {">"} IMMERSION PARAMETERS
+          {">"} IMMERSION CONDITIONS
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Fluid */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           <div>
-            <label className={lbl}>Coolant Fluid</label>
-            <select className={inp} value={fluidKey} onChange={(e) => {
-              setFluidKey(e.target.value);
-              const f = fluids[e.target.value];
-              if (fluidTemp >= f.T_sat) setFluidTemp(f.T_sat - 10);
-            }}>
-              {fluidKeys.map((k) => (
-                <option key={k} value={k}>
-                  {fluids[k].name} (T_sat {fluids[k].T_sat}°C)
-                </option>
-              ))}
+            <label className={lbl}>Fluid</label>
+            <select className={`${inp} mt-1`} value={filterFluid} onChange={(e) => setFilterFluid(e.target.value)}>
+              {FLUID_OPTIONS.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
           </div>
-
-          {/* Surface */}
           <div>
-            <label className={lbl}>Surface Type</label>
-            <select className={inp} value={surfaceKey} onChange={(e) => setSurfaceKey(e.target.value)}>
-              {surfaceKeys.map((k) => (
-                <option key={k} value={k}>
-                  {surfaces[k].name} ({surfaces[k].hMultiplier}x)
-                </option>
-              ))}
+            <label className={lbl}>Surface</label>
+            <select className={`${inp} mt-1`} value={filterSurface} onChange={(e) => setFilterSurface(e.target.value)}>
+              {SURFACE_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
-
-          {/* Fluid temperature */}
           <div>
-            <div className="flex justify-between items-center">
-              <label className={lbl}>Fluid Temperature</label>
-              <span className="text-cyan-100 font-mono text-xs">{fluidTemp}°C</span>
-            </div>
-            <input type="range" min={10} max={fluid.T_sat - 1} step={1} value={fluidTemp}
-              onChange={(e) => setFluidTemp(Number(e.target.value))}
-              className="w-full h-1.5 mt-2 rounded-lg appearance-none cursor-pointer accent-cyan-500 bg-[#0f3460]" />
-            <div className="flex justify-between text-[9px] text-gray-600 font-mono mt-0.5">
-              <span>10°C</span>
-              <span>T_sat {fluid.T_sat}°C</span>
-            </div>
+            <label className={lbl}>Subcooling</label>
+            <select className={`${inp} mt-1`} value={filterSubcooling} onChange={(e) => setFilterSubcooling(e.target.value)}>
+              {SUBCOOLING_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
           </div>
-
-          {/* Surface angle */}
           <div>
-            <div className="flex justify-between items-center">
-              <label className={lbl}>Surface Angle</label>
-              <span className="text-cyan-100 font-mono text-xs">{angle}°</span>
-            </div>
-            <input type="range" min={0} max={180} step={5} value={angle}
-              onChange={(e) => setAngle(Number(e.target.value))}
-              className="w-full h-1.5 mt-2 rounded-lg appearance-none cursor-pointer accent-cyan-500 bg-[#0f3460]" />
-            <div className="flex justify-between text-[9px] text-gray-600 font-mono mt-0.5">
-              <span>0° (up)</span>
-              <span>90° (vert)</span>
-              <span>180° (down)</span>
+            <label className={lbl}>Orientation (°)</label>
+            <input type="number" min={0} max={180} step={1} value={filterOrientation}
+              onChange={(e) => setFilterOrientation(Math.min(180, Math.max(0, Number(e.target.value) || 0)))}
+              className={`${inp} mt-1`}
+              placeholder="0–180"
+            />
+            <div className="text-[9px] text-gray-600 font-mono mt-0.5">
+              0° = up, 90° = vert, 180° = down
             </div>
           </div>
-
-          {/* Flow velocity */}
           <div>
-            <div className="flex justify-between items-center">
-              <label className={lbl}>External Flow Velocity</label>
-              <span className="text-cyan-100 font-mono text-xs">{flowVelocity.toFixed(1)} m/s</span>
-            </div>
-            <input type="range" min={0} max={2} step={0.1} value={flowVelocity}
-              onChange={(e) => setFlowVelocity(Number(e.target.value))}
-              className="w-full h-1.5 mt-2 rounded-lg appearance-none cursor-pointer accent-cyan-500 bg-[#0f3460]" />
-            <div className="flex justify-between text-[9px] text-gray-600 font-mono mt-0.5">
-              <span>0 (pool)</span>
-              <span>2.0 m/s</span>
-            </div>
-          </div>
-
-          {/* Computed h display */}
-          <div className="flex flex-col justify-center p-3 rounded-lg bg-[#1a1a2e] border border-green-800/40">
-            <span className="text-gray-400 text-[10px] font-mono uppercase">Effective h</span>
-            <span className="text-green-400 font-mono text-xl font-bold">
-              {immersion.h.toLocaleString()} W/m²K
-            </span>
+            <label className={lbl}>Pressure</label>
+            <select className={`${inp} mt-1`} value={filterPressure} onChange={(e) => setFilterPressure(e.target.value)}>
+              {PRESSURE_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
           </div>
         </div>
       </div>
 
-      {/* Headline stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="p-5 rounded-xl border bg-[#16213e] border-[#0f3460] flex flex-col items-center justify-center">
-          <span className="text-gray-400 text-xs font-mono mb-1">CHIP TEMP</span>
-          <span className={`text-3xl font-mono font-bold ${immersion.chipTemp > 85 ? "text-red-400" : "text-green-400"}`}>
-            {immersion.chipTemp}°C
-          </span>
-          <span className="text-gray-500 text-xs font-mono mt-1">
-            vs {forcedChipTemp}°C (fan)
-          </span>
-        </div>
-        <div className="p-5 rounded-xl border bg-[#16213e] border-[#0f3460] flex flex-col items-center justify-center">
-          <span className="text-gray-400 text-xs font-mono mb-1">COOLING POWER SAVED</span>
-          <span className="text-3xl font-mono font-bold text-green-400">{savingsPct}%</span>
-          <span className="text-gray-500 text-xs font-mono mt-1">{savingsW}W saved per chip</span>
-        </div>
-        <div className="p-5 rounded-xl border bg-[#16213e] border-[#0f3460] flex flex-col items-center justify-center">
-          <span className="text-gray-400 text-xs font-mono mb-1">ΔT (SUPERHEAT)</span>
-          <span className="text-3xl font-mono font-bold text-cyan-400">{immersion.deltaT} K</span>
-          <span className="text-gray-500 text-xs font-mono mt-1">
-            above T_sat {fluid.T_sat}°C ({fluid.name})
-          </span>
-        </div>
-      </div>
-
-      {/* Fluid properties */}
-      <div className="p-5 rounded-xl border bg-[#0d1b3e] border-[#0f3460]">
-        <h3 className="text-sm font-bold text-cyan-400 font-mono mb-3">
-          {">"} {fluid.name.toUpperCase()} — PROPERTIES (@ 1 atm)
-        </h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[
-            { label: "Formula", value: fluid.formula },
-            { label: "T_sat", value: `${fluid.T_sat} °C` },
-            { label: "ρ_liquid", value: `${fluid.rho_l.toLocaleString()} kg/m³` },
-            { label: "ρ_vapor", value: `${fluid.rho_v} kg/m³` },
-            { label: "h_fg", value: `${fluid.h_fg} kJ/kg` },
-            { label: "k_liquid", value: `${fluid.k_l} W/mK` },
-            { label: "μ_liquid", value: `${(fluid.mu_l * 1000).toFixed(2)} mPa·s` },
-            { label: "c_p", value: `${fluid.c_pl.toLocaleString()} J/kgK` },
-            { label: "σ", value: `${(fluid.sigma * 1000).toFixed(1)} mN/m` },
-            { label: "Pr_liquid", value: `${fluid.Pr_l}` },
-            { label: "GWP", value: `${fluid.GWP.toLocaleString()}` },
-            { label: "Surface", value: `${surface.name} (${surface.hMultiplier}x)` },
-          ].map((p) => (
-            <div key={p.label} className="flex flex-col">
-              <span className="text-gray-500 text-[10px] font-mono uppercase">{p.label}</span>
-              <span className="text-gray-200 text-xs font-mono font-semibold">{p.value}</span>
+      {/* Dataset selector */}
+      {hasUserData && (
+        <div className="p-5 rounded-xl border bg-[#16213e] border-[#0f3460]">
+          <h3 className="text-sm font-bold text-cyan-400 font-mono tracking-wider mb-4">
+            {">"} SELECT DATASETS ({filteredDatasets.length})
+          </h3>
+          {filteredDatasets.length === 0 ? (
+            <p className="text-gray-500 font-mono text-sm">No datasets match current filters.</p>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {filteredDatasets.map((ds) => {
+                const meta = ds.experiment || ds.literature;
+                const fluid = (meta as Record<string, string | undefined>)?.fluid;
+                const surf = ds.experiment?.surfaceModification || ds.experiment?.baseSurface || (ds.literature as Record<string, string | undefined>)?.surfaceType;
+                return (
+                  <label
+                    key={ds.id}
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${
+                      selectedIds.includes(ds.id)
+                        ? "bg-cyan-500/10 border-cyan-500"
+                        : "bg-[#1a1a2e] border-[#0f3460] hover:border-gray-500"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(ds.id)}
+                      onChange={() => toggleDataset(ds.id)}
+                      className="accent-cyan-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-cyan-200 font-mono text-sm font-semibold truncate">{ds.name}</div>
+                      <div className="text-gray-500 font-mono text-[10px]">
+                        {ds.data.length} pts
+                        {fluid && ` · ${fluid}`}
+                        {surf && ` · ${surf}`}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
-          ))}
+          )}
         </div>
-      </div>
+      )}
 
-      {/* Comparison table */}
-      <div className="rounded-xl border bg-[#16213e] border-[#0f3460] overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-[#1a1a2e]">
-              <th className="px-4 py-3 text-left text-xs font-mono text-cyan-400 uppercase border-b border-[#0f3460]">Metric</th>
-              <th className="px-4 py-3 text-left text-xs font-mono text-cyan-400 uppercase border-b border-[#0f3460]">Forced Conv.</th>
-              <th className="px-4 py-3 text-left text-xs font-mono text-cyan-400 uppercase border-b border-[#0f3460]">Immersion ({fluid.name})</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              { label: "h (W/m²K)", a: forcedH.toLocaleString(), b: immersion.h.toLocaleString() },
-              { label: "ΔT (K)", a: Math.round(forcedDT * 10) / 10, b: immersion.deltaT },
-              { label: "T_chip (°C)", a: forcedChipTemp, b: immersion.chipTemp },
-              { label: "q'' (W/cm²)", a: immersion.heatFlux, b: immersion.heatFlux },
-              { label: "Cooling Power (W)", a: forcedPower, b: immersion.coolingPower },
-              { label: "Energy Savings", a: "—", b: `${savingsPct}% (${savingsW}W)` },
-            ].map((row) => (
-              <tr key={row.label}>
-                <td className="px-4 py-2.5 text-sm font-mono text-gray-300 border-b border-[#0f3460] font-medium">{row.label}</td>
-                <td className="px-4 py-2.5 text-sm font-mono text-gray-200 border-b border-[#0f3460]">{row.a}</td>
-                <td className="px-4 py-2.5 text-sm font-mono text-green-400 border-b border-[#0f3460]">{row.b}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {/* Operating point cards */}
+      {hasSelection && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-5 rounded-xl border bg-[#16213e] border-[#0f3460] flex flex-col items-center justify-center">
+            <span className={lbl}>CURRENT q&apos;&apos;</span>
+            <span className="text-3xl font-mono font-bold text-cyan-400 mt-1">{currentQFlux.toFixed(1)}</span>
+            <span className="text-gray-500 text-xs font-mono mt-1">kW/m²</span>
+          </div>
+          {interpolatedTemp !== null && (
+            <div className="p-5 rounded-xl border bg-[#16213e] border-[#0f3460] flex flex-col items-center justify-center">
+              <span className={lbl}>ESTIMATED T_surf</span>
+              <span className={`text-3xl font-mono font-bold mt-1 ${interpolatedTemp > 85 ? "text-red-400" : "text-green-400"}`}>
+                {interpolatedTemp}°C
+              </span>
+              <span className="text-gray-500 text-xs font-mono mt-1">from merged curve</span>
+            </div>
+          )}
+          {interpolatedTemp !== null && (
+            <div className="p-5 rounded-xl border bg-[#16213e] border-[#0f3460] flex flex-col items-center justify-center">
+              <span className={lbl}>EFFECTIVE h</span>
+              <span className="text-3xl font-mono font-bold text-green-400 mt-1">
+                {interpolatedTemp > spec.ambientTemp
+                  ? Math.round((currentQFlux * 1000) / (interpolatedTemp - spec.ambientTemp)).toLocaleString()
+                  : "—"}
+              </span>
+              <span className="text-gray-500 text-xs font-mono mt-1">W/m²K</span>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Charts */}
-      <div className="p-6 rounded-xl border bg-[#16213e] border-[#0f3460]">
-        <CoolingChart
-          chipArea={spec.chipArea}
-          maxTdp={spec.tdp}
-          ambientTemp={spec.ambientTemp}
-          methods={METHODS}
-          immersionParams={immersionParams}
-          immersionLabel={`Immersion (${fluid.name})`}
-        />
-      </div>
+      {/* Merged boiling curve chart */}
+      {chartData && (
+        <div className="p-5 rounded-xl border bg-[#16213e] border-[#0f3460]">
+          <h3 className="text-sm font-bold text-cyan-400 font-mono tracking-wider mb-4">
+            {">"} MERGED BOILING CURVE ({selectedDs.length} datasets, {scatterPoints.length} points)
+          </h3>
+          <ResponsiveContainer width="100%" height={400}>
+            <LineChart margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#0f3460" />
+              <XAxis dataKey="tSurf" type="number" domain={["dataMin", "dataMax"]}
+                label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#9ca3af", fontSize: 12 }}
+                tick={{ fill: "#9ca3af", fontSize: 11 }} stroke="#0f3460"
+                allowDuplicatedCategory={false} />
+              <YAxis
+                label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#9ca3af", fontSize: 12 }}
+                tick={{ fill: "#9ca3af", fontSize: 11 }} stroke="#0f3460" />
+              <Tooltip contentStyle={{ backgroundColor: "#16213e", border: "1px solid #0f3460", borderRadius: 8, fontFamily: "monospace", fontSize: 12 }} />
+              {/* T_max reference */}
+              <ReferenceLine y={85} stroke="#ef4444" strokeDasharray="6 3"
+                label={{ value: "T_max 85°C", fill: "#ef4444", fontSize: 10, fontFamily: "monospace" }} />
+              {/* Current q'' */}
+              {interpolatedTemp !== null && (
+                <ReferenceLine x={interpolatedTemp} stroke="#8b5cf6" strokeDasharray="6 3"
+                  label={{ value: `T=${interpolatedTemp}°C`, fill: "#8b5cf6", fontSize: 10, fontFamily: "monospace" }} />
+              )}
+              {/* Raw data scatter */}
+              <Line data={scatterPoints} dataKey="qFlux" type="linear" stroke="none"
+                dot={{ fill: "#9ca3af", r: 2, opacity: 0.4 }} name="Raw data" legendType="circle" />
+              {/* Merged curve */}
+              <Line data={chartData} dataKey="qFlux" type="monotone"
+                stroke="#22d3ee" strokeWidth={3}
+                dot={false} name="Merged curve" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Demo chart — when no selection */}
+      {!hasSelection && (
+        <div className="p-5 rounded-xl border bg-[#16213e] border-[#0f3460]">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-cyan-400 font-mono tracking-wider">
+              {">"} TYPICAL BOILING CURVES (REFERENCE)
+            </h3>
+            {!hasUserData && (
+              <span className="text-[10px] font-mono text-gray-500 border border-[#0f3460] rounded px-2 py-1">
+                Add your data via DATA INPUT
+              </span>
+            )}
+          </div>
+          <ResponsiveContainer width="100%" height={400}>
+            <LineChart data={demoChartData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#0f3460" />
+              <XAxis dataKey="tSurf"
+                label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#9ca3af", fontSize: 12 }}
+                tick={{ fill: "#9ca3af", fontSize: 11 }} stroke="#0f3460" />
+              <YAxis
+                label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#9ca3af", fontSize: 12 }}
+                tick={{ fill: "#9ca3af", fontSize: 11 }} stroke="#0f3460" />
+              <Tooltip contentStyle={{ backgroundColor: "#16213e", border: "1px solid #0f3460", borderRadius: 8, fontFamily: "monospace", fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontFamily: "monospace", fontSize: 11 }} />
+              <ReferenceLine y={85} stroke="#ef4444" strokeDasharray="6 3"
+                label={{ value: "T_max 85°C", fill: "#ef4444", fontSize: 10, fontFamily: "monospace" }} />
+              {DEMO_CURVES.map((c) => (
+                <Line key={c.name} type="monotone" dataKey={c.name} name={c.name}
+                  stroke={c.color} strokeWidth={2} dot={{ fill: c.color, r: 3 }} connectNulls />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   );
 }
