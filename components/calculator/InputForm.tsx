@@ -42,7 +42,7 @@ export default function InputForm({ onChange }: Props) {
   return (
     <div className="p-5 rounded-xl border bg-[#16213e] border-[#0f3460] space-y-5">
       <h2 className="text-sm font-bold text-cyan-400 font-mono tracking-wider">
-        {">"} CHIP SPEC
+        {">"} GENERAL DESIGN
       </h2>
 
       {/* Preset */}

@@ -1,9 +1,13 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { BoilingDataset, loadDatasets, deleteDataset } from "@/lib/boiling-data";
+import {
+  BoilingDataset, BoilingDataPoint, ExperimentMeta, LiteratureMeta, DataBackup,
+  loadDatasets, deleteDataset, updateDataset,
+  loadBackups, createBackup, restoreBackup, deleteBackup, downloadBackup, importBackup
+} from "@/lib/boiling-data";
 
 const COLORS = ["#0891b2", "#059669", "#db2777", "#ca8a04", "#7c3aed", "#ea580c", "#dc2626", "#2563eb", "#65a30d", "#c026d3"];
 
@@ -12,17 +16,93 @@ export default function DataManageTab() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // Edit mode states
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editMeta, setEditMeta] = useState<ExperimentMeta | LiteratureMeta>({});
+  const [editData, setEditData] = useState<BoilingDataPoint[]>([]);
+  const [newPoint, setNewPoint] = useState<{ tSurf: string; qFlux: string }>({ tSurf: "", qFlux: "" });
+  const [saveStatus, setSaveStatus] = useState<"" | "saved" | "error">("");
+
+  // Backup states
+  const [backups, setBackups] = useState<DataBackup[]>([]);
+  const [showBackups, setShowBackups] = useState(false);
+  const [backupName, setBackupName] = useState("");
+  const [backupStatus, setBackupStatus] = useState<"" | "created" | "restored" | "error">("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     setDatasets(loadDatasets());
+    setBackups(loadBackups());
   }, []);
 
-  const refresh = () => setDatasets(loadDatasets());
+  const refresh = () => {
+    setDatasets(loadDatasets());
+    setBackups(loadBackups());
+  };
+
+  // Backup functions
+  const handleCreateBackup = () => {
+    try {
+      createBackup(backupName || undefined);
+      setBackupName("");
+      setBackups(loadBackups());
+      setBackupStatus("created");
+      setTimeout(() => setBackupStatus(""), 2000);
+    } catch {
+      setBackupStatus("error");
+    }
+  };
+
+  const handleRestoreBackup = (backupId: string) => {
+    if (confirm("현재 데이터를 이 백업으로 복원하시겠습니까? 현재 데이터는 덮어씌워집니다.")) {
+      const success = restoreBackup(backupId);
+      if (success) {
+        refresh();
+        setBackupStatus("restored");
+        setTimeout(() => setBackupStatus(""), 2000);
+      } else {
+        setBackupStatus("error");
+      }
+    }
+  };
+
+  const handleDeleteBackup = (backupId: string) => {
+    if (confirm("이 백업을 삭제하시겠습니까?")) {
+      deleteBackup(backupId);
+      setBackups(loadBackups());
+    }
+  };
+
+  const handleDownloadBackup = (backup: DataBackup) => {
+    downloadBackup(backup);
+  };
+
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const result = await importBackup(file);
+    if (result) {
+      setBackups(loadBackups());
+      setBackupStatus("created");
+      setTimeout(() => setBackupStatus(""), 2000);
+    } else {
+      setBackupStatus("error");
+    }
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
 
   const handleDelete = (id: string) => {
     deleteDataset(id);
     refresh();
     setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
     if (expandedId === id) setExpandedId(null);
+    if (editingId === id) cancelEdit();
   };
 
   const toggleSelect = (id: string) => {
@@ -39,6 +119,108 @@ export default function DataManageTab() {
     } else {
       setSelected(new Set(datasets.map((d) => d.id)));
     }
+  };
+
+  // Start editing a dataset
+  const startEdit = (ds: BoilingDataset) => {
+    setEditingId(ds.id);
+    setEditName(ds.name);
+    setEditMeta(ds.source === "experiment" ? { ...ds.experiment } : { ...ds.literature });
+    setEditData([...ds.data]);
+    setNewPoint({ tSurf: "", qFlux: "" });
+    setSaveStatus("");
+  };
+
+  // Cancel editing
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditName("");
+    setEditMeta({});
+    setEditData([]);
+    setNewPoint({ tSurf: "", qFlux: "" });
+    setSaveStatus("");
+  };
+
+  // Save edited dataset
+  const saveEdit = (ds: BoilingDataset) => {
+    try {
+      const updates: Partial<BoilingDataset> = {
+        name: editName,
+        data: editData,
+      };
+      if (ds.source === "experiment") {
+        updates.experiment = editMeta as ExperimentMeta;
+      } else {
+        updates.literature = editMeta as LiteratureMeta;
+      }
+      updateDataset(ds.id, updates);
+      refresh();
+      setSaveStatus("saved");
+      setTimeout(() => {
+        cancelEdit();
+      }, 800);
+    } catch {
+      setSaveStatus("error");
+    }
+  };
+
+  // Update metadata field
+  const updateMetaField = (key: string, value: string) => {
+    setEditMeta((prev) => ({ ...prev, [key]: value }));
+  };
+
+  // Update data point
+  const updateDataPoint = (index: number, field: "tSurf" | "qFlux", value: string) => {
+    const num = parseFloat(value);
+    if (isNaN(num)) return;
+    setEditData((prev) => {
+      const newData = [...prev];
+      newData[index] = { ...newData[index], [field]: num };
+      return newData;
+    });
+  };
+
+  // Delete data point
+  const deleteDataPoint = (index: number) => {
+    setEditData((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Add new data point
+  const addDataPoint = () => {
+    const tSurf = parseFloat(newPoint.tSurf);
+    const qFlux = parseFloat(newPoint.qFlux);
+    if (isNaN(tSurf) || isNaN(qFlux)) return;
+    setEditData((prev) => [...prev, { tSurf, qFlux }]);
+    setNewPoint({ tSurf: "", qFlux: "" });
+  };
+
+  // Export to CSV
+  const exportCSV = (ds: BoilingDataset) => {
+    const header = "T_surf (°C),q'' (kW/m²)\n";
+    const rows = [...ds.data]
+      .sort((a, b) => a.tSurf - b.tSurf)
+      .map((p) => `${p.tSurf},${p.qFlux}`)
+      .join("\n");
+    const csv = header + rows;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${ds.name.replace(/[^a-z0-9]/gi, "_")}_data.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Export to JSON
+  const exportJSON = (ds: BoilingDataset) => {
+    const json = JSON.stringify(ds, null, 2);
+    const blob = new Blob([json], { type: "application/json;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${ds.name.replace(/[^a-z0-9]/gi, "_")}_dataset.json`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   const expandedDs = expandedId ? datasets.find((d) => d.id === expandedId) : null;
@@ -64,59 +246,163 @@ export default function DataManageTab() {
 
   const lbl = "text-gray-500 text-[10px] font-mono uppercase tracking-wider";
 
-  const renderMeta = (ds: BoilingDataset) => {
-    const entries: { label: string; value: string }[] = [];
+  const getMetaFields = (ds: BoilingDataset): { key: string; label: string; value: string }[] => {
+    const entries: { key: string; label: string; value: string }[] = [];
     if (ds.source === "experiment" && ds.experiment) {
       const m = ds.experiment;
-      if (m.date) entries.push({ label: "Date", value: m.date });
-      if (m.experimenter) entries.push({ label: "Experimenter", value: m.experimenter });
-      if (m.fluid) entries.push({ label: "Fluid", value: m.fluid });
-      if (m.subcooling) entries.push({ label: "Subcooling", value: m.subcooling });
-      if (m.pressure) entries.push({ label: "Pressure", value: m.pressure });
-      if (m.bulkFluidTemp) entries.push({ label: "Bulk Fluid Temp", value: m.bulkFluidTemp });
-      if (m.orientation) entries.push({ label: "Orientation", value: m.orientation });
-      if (m.flowVelocity) entries.push({ label: "Flow Velocity", value: m.flowVelocity });
-      if (m.heaterMaterial) entries.push({ label: "Heater Material", value: m.heaterMaterial });
-      if (m.heaterSize) entries.push({ label: "Heater Size", value: m.heaterSize });
-      if (m.heaterGeometry) entries.push({ label: "Heater Geometry", value: m.heaterGeometry });
-      if (m.baseSurface) entries.push({ label: "Base Surface", value: m.baseSurface });
-      if (m.ra) entries.push({ label: "Ra (μm)", value: m.ra });
-      if (m.rz) entries.push({ label: "Rz (μm)", value: m.rz });
-      if (m.contactAngle) entries.push({ label: "Contact Angle", value: m.contactAngle });
-      if (m.surfaceModification) entries.push({ label: "Modification", value: m.surfaceModification });
-      if (m.patternAreaRatio) entries.push({ label: "Pattern Area Ratio", value: m.patternAreaRatio });
-      if (m.patternSpacing) entries.push({ label: "Pattern Spacing", value: m.patternSpacing });
-      if (m.patternThickness) entries.push({ label: "Pattern Thickness", value: m.patternThickness });
-      if (m.structureHeight) entries.push({ label: "Structure Height", value: m.structureHeight });
-      if (m.porosity) entries.push({ label: "Porosity", value: m.porosity });
-      if (m.coatingMaterial) entries.push({ label: "Coating Material", value: m.coatingMaterial });
-      if (m.coatingThickness) entries.push({ label: "Coating Thickness", value: m.coatingThickness });
-      if (m.wickingHeight) entries.push({ label: "Wicking Height", value: m.wickingHeight });
-      if (m.nucleationSiteDensity) entries.push({ label: "Nucleation Site Density", value: m.nucleationSiteDensity });
-      if (m.notes) entries.push({ label: "Notes", value: m.notes });
+      entries.push({ key: "date", label: "Date", value: m.date || "" });
+      entries.push({ key: "experimenter", label: "Experimenter", value: m.experimenter || "" });
+      entries.push({ key: "fluid", label: "Fluid", value: m.fluid || "" });
+      entries.push({ key: "subcooling", label: "Subcooling", value: m.subcooling || "" });
+      entries.push({ key: "pressure", label: "Pressure", value: m.pressure || "" });
+      entries.push({ key: "bulkFluidTemp", label: "Bulk Fluid Temp", value: m.bulkFluidTemp || "" });
+      entries.push({ key: "orientation", label: "Orientation", value: m.orientation || "" });
+      entries.push({ key: "flowVelocity", label: "Flow Velocity", value: m.flowVelocity || "" });
+      entries.push({ key: "heaterMaterial", label: "Heater Material", value: m.heaterMaterial || "" });
+      entries.push({ key: "heaterSize", label: "Heater Size", value: m.heaterSize || "" });
+      entries.push({ key: "heaterGeometry", label: "Heater Geometry", value: m.heaterGeometry || "" });
+      entries.push({ key: "baseSurface", label: "Base Surface", value: m.baseSurface || "" });
+      entries.push({ key: "ra", label: "Ra (μm)", value: m.ra || "" });
+      entries.push({ key: "rz", label: "Rz (μm)", value: m.rz || "" });
+      entries.push({ key: "contactAngle", label: "Contact Angle", value: m.contactAngle || "" });
+      entries.push({ key: "surfaceModification", label: "Modification", value: m.surfaceModification || "" });
+      entries.push({ key: "patternAreaRatio", label: "Pattern Area Ratio", value: m.patternAreaRatio || "" });
+      entries.push({ key: "patternSpacing", label: "Pattern Spacing", value: m.patternSpacing || "" });
+      entries.push({ key: "patternThickness", label: "Pattern Thickness", value: m.patternThickness || "" });
+      entries.push({ key: "structureHeight", label: "Structure Height", value: m.structureHeight || "" });
+      entries.push({ key: "porosity", label: "Porosity", value: m.porosity || "" });
+      entries.push({ key: "coatingMaterial", label: "Coating Material", value: m.coatingMaterial || "" });
+      entries.push({ key: "coatingThickness", label: "Coating Thickness", value: m.coatingThickness || "" });
+      entries.push({ key: "wickingHeight", label: "Wicking Height", value: m.wickingHeight || "" });
+      entries.push({ key: "nucleationSiteDensity", label: "Nucleation Site Density", value: m.nucleationSiteDensity || "" });
+      entries.push({ key: "notes", label: "Notes", value: m.notes || "" });
     } else if (ds.source === "literature" && ds.literature) {
       const m = ds.literature;
-      if (m.title) entries.push({ label: "Title", value: m.title });
-      if (m.authors) entries.push({ label: "Authors", value: m.authors });
-      if (m.year) entries.push({ label: "Year", value: m.year });
-      if (m.journal) entries.push({ label: "Journal", value: m.journal });
-      if (m.doi) entries.push({ label: "DOI", value: m.doi });
-      if (m.fluid) entries.push({ label: "Fluid", value: m.fluid });
-      if (m.surfaceType) entries.push({ label: "Surface Type", value: m.surfaceType });
-      if (m.surfaceRoughness) entries.push({ label: "Surface Roughness", value: m.surfaceRoughness });
-      if (m.heaterGeometry) entries.push({ label: "Heater Geometry", value: m.heaterGeometry });
-      if (m.heaterSize) entries.push({ label: "Heater Size", value: m.heaterSize });
-      if (m.orientation) entries.push({ label: "Orientation", value: m.orientation });
-      if (m.pressure) entries.push({ label: "Pressure", value: m.pressure });
-      if (m.subcooling) entries.push({ label: "Subcooling", value: m.subcooling });
-      if (m.flowVelocity) entries.push({ label: "Flow Velocity", value: m.flowVelocity });
-      if (m.notes) entries.push({ label: "Notes", value: m.notes });
+      entries.push({ key: "title", label: "Title", value: m.title || "" });
+      entries.push({ key: "authors", label: "Authors", value: m.authors || "" });
+      entries.push({ key: "year", label: "Year", value: m.year || "" });
+      entries.push({ key: "journal", label: "Journal", value: m.journal || "" });
+      entries.push({ key: "doi", label: "DOI", value: m.doi || "" });
+      entries.push({ key: "fluid", label: "Fluid", value: m.fluid || "" });
+      entries.push({ key: "surfaceType", label: "Surface Type", value: m.surfaceType || "" });
+      entries.push({ key: "surfaceRoughness", label: "Surface Roughness", value: m.surfaceRoughness || "" });
+      entries.push({ key: "heaterGeometry", label: "Heater Geometry", value: m.heaterGeometry || "" });
+      entries.push({ key: "heaterSize", label: "Heater Size", value: m.heaterSize || "" });
+      entries.push({ key: "orientation", label: "Orientation", value: m.orientation || "" });
+      entries.push({ key: "pressure", label: "Pressure", value: m.pressure || "" });
+      entries.push({ key: "subcooling", label: "Subcooling", value: m.subcooling || "" });
+      entries.push({ key: "flowVelocity", label: "Flow Velocity", value: m.flowVelocity || "" });
+      entries.push({ key: "notes", label: "Notes", value: m.notes || "" });
     }
     return entries;
   };
 
+  const renderMeta = (ds: BoilingDataset) => {
+    return getMetaFields(ds).filter((m) => m.value);
+  };
+
   return (
     <div className="space-y-6">
+      {/* Backup Section */}
+      <div className="p-5 rounded-xl border bg-white border-gray-200 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-bold text-amber-600 font-mono tracking-wider">
+            {">"} DATA BACKUP ({backups.length})
+          </h3>
+          <button
+            onClick={() => setShowBackups(!showBackups)}
+            className="px-3 py-1 rounded border border-amber-400 bg-amber-50 text-amber-700 font-mono text-xs hover:bg-amber-100 transition"
+          >
+            {showBackups ? "Hide" : "Show"} Backups
+          </button>
+        </div>
+
+        {/* Quick backup controls */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="text"
+            value={backupName}
+            onChange={(e) => setBackupName(e.target.value)}
+            placeholder="Backup name (optional)"
+            className="px-3 py-1.5 rounded border border-gray-200 font-mono text-xs focus:border-amber-400 focus:outline-none w-48"
+          />
+          <button
+            onClick={handleCreateBackup}
+            disabled={datasets.length === 0}
+            className="px-3 py-1.5 rounded border border-amber-500 bg-amber-500 text-white font-mono text-xs hover:bg-amber-600 transition disabled:bg-gray-300 disabled:border-gray-300 disabled:cursor-not-allowed"
+          >
+            Create Backup
+          </button>
+          <input
+            type="file"
+            accept=".json"
+            onChange={handleImportBackup}
+            ref={fileInputRef}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="px-3 py-1.5 rounded border border-violet-400 bg-violet-50 text-violet-700 font-mono text-xs hover:bg-violet-100 transition"
+          >
+            Import Backup
+          </button>
+          {backupStatus === "created" && (
+            <span className="text-emerald-600 font-mono text-xs">Backup created!</span>
+          )}
+          {backupStatus === "restored" && (
+            <span className="text-amber-600 font-mono text-xs">Data restored!</span>
+          )}
+          {backupStatus === "error" && (
+            <span className="text-red-500 font-mono text-xs">Error</span>
+          )}
+        </div>
+
+        {/* Backup list */}
+        {showBackups && (
+          <div className="mt-4 space-y-2">
+            {backups.length === 0 ? (
+              <p className="text-gray-400 font-mono text-sm">No backups yet.</p>
+            ) : (
+              backups.map((backup) => (
+                <div
+                  key={backup.id}
+                  className="flex items-center gap-3 p-3 rounded-lg border bg-amber-50/50 border-amber-200"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-gray-800 font-mono text-sm font-semibold truncate">
+                      {backup.name}
+                    </div>
+                    <div className="text-gray-400 font-mono text-[10px]">
+                      {backup.datasetCount} datasets · {new Date(backup.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button
+                      onClick={() => handleRestoreBackup(backup.id)}
+                      className="px-2 py-1 rounded border border-emerald-400 bg-emerald-50 text-emerald-700 font-mono text-[10px] hover:bg-emerald-100 transition"
+                    >
+                      Restore
+                    </button>
+                    <button
+                      onClick={() => handleDownloadBackup(backup)}
+                      className="px-2 py-1 rounded border border-cyan-400 bg-cyan-50 text-cyan-700 font-mono text-[10px] hover:bg-cyan-100 transition"
+                    >
+                      Download
+                    </button>
+                    <button
+                      onClick={() => handleDeleteBackup(backup.id)}
+                      className="text-red-500 hover:text-red-400 font-mono text-xs px-2"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Dataset list */}
       <div className="p-5 rounded-xl border bg-white border-gray-200 shadow-sm">
         <div className="flex items-center justify-between mb-4">
@@ -143,7 +429,9 @@ export default function DataManageTab() {
           <div className="space-y-2">
             {datasets.map((ds) => {
               const isExpanded = expandedId === ds.id;
+              const isEditing = editingId === ds.id;
               const meta = renderMeta(ds);
+              const metaFields = getMetaFields(ds);
               return (
                 <div key={ds.id}>
                   <div
@@ -191,24 +479,101 @@ export default function DataManageTab() {
                   {/* Expanded detail */}
                   {isExpanded && (
                     <div className="border border-t-0 border-cyan-400 rounded-b-lg bg-white p-4 space-y-4">
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {!isEditing ? (
+                          <>
+                            <button
+                              onClick={() => startEdit(ds)}
+                              className="px-3 py-1.5 rounded border border-cyan-400 bg-cyan-50 text-cyan-700 font-mono text-xs hover:bg-cyan-100 transition"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => exportCSV(ds)}
+                              className="px-3 py-1.5 rounded border border-emerald-400 bg-emerald-50 text-emerald-700 font-mono text-xs hover:bg-emerald-100 transition"
+                            >
+                              Export CSV
+                            </button>
+                            <button
+                              onClick={() => exportJSON(ds)}
+                              className="px-3 py-1.5 rounded border border-violet-400 bg-violet-50 text-violet-700 font-mono text-xs hover:bg-violet-100 transition"
+                            >
+                              Export JSON
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => saveEdit(ds)}
+                              className="px-3 py-1.5 rounded border border-emerald-500 bg-emerald-500 text-white font-mono text-xs hover:bg-emerald-600 transition"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={cancelEdit}
+                              className="px-3 py-1.5 rounded border border-gray-300 bg-gray-50 text-gray-600 font-mono text-xs hover:bg-gray-100 transition"
+                            >
+                              Cancel
+                            </button>
+                            {saveStatus === "saved" && (
+                              <span className="text-emerald-600 font-mono text-xs">Saved!</span>
+                            )}
+                            {saveStatus === "error" && (
+                              <span className="text-red-500 font-mono text-xs">Error saving</span>
+                            )}
+                          </>
+                        )}
+                      </div>
+
+                      {/* Dataset name (editable) */}
+                      {isEditing && (
+                        <div>
+                          <div className={`${lbl} mb-2`}>Dataset Name</div>
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="w-full max-w-md px-3 py-2 rounded border border-gray-300 font-mono text-sm focus:border-cyan-400 focus:outline-none"
+                          />
+                        </div>
+                      )}
+
                       {/* Metadata */}
-                      {meta.length > 0 && (
+                      {(meta.length > 0 || isEditing) && (
                         <div>
                           <div className={`${lbl} mb-2`}>Metadata</div>
-                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-1">
-                            {meta.map((m) => (
-                              <div key={m.label} className="flex gap-1 font-mono text-xs">
-                                <span className="text-gray-400 shrink-0">{m.label}:</span>
-                                <span className="text-gray-700 truncate">{m.value}</span>
-                              </div>
-                            ))}
-                          </div>
+                          {!isEditing ? (
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-1">
+                              {meta.map((m) => (
+                                <div key={m.label} className="flex gap-1 font-mono text-xs">
+                                  <span className="text-gray-400 shrink-0">{m.label}:</span>
+                                  <span className="text-gray-700 truncate">{m.value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {metaFields.map((field) => (
+                                <div key={field.key} className="flex flex-col gap-1">
+                                  <label className="text-gray-400 font-mono text-[10px] uppercase">{field.label}</label>
+                                  <input
+                                    type="text"
+                                    value={(editMeta as Record<string, string>)[field.key] || ""}
+                                    onChange={(e) => updateMetaField(field.key, e.target.value)}
+                                    className="px-2 py-1 rounded border border-gray-200 font-mono text-xs focus:border-cyan-400 focus:outline-none"
+                                    placeholder={field.label}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
 
                       {/* Data table */}
                       <div>
-                        <div className={`${lbl} mb-2`}>Data Points ({ds.data.length})</div>
+                        <div className={`${lbl} mb-2`}>Data Points ({isEditing ? editData.length : ds.data.length})</div>
                         <div className="rounded-lg border border-gray-200 overflow-hidden max-h-60 overflow-y-auto">
                           <table className="w-full">
                             <thead className="sticky top-0 z-10">
@@ -216,16 +581,83 @@ export default function DataManageTab() {
                                 <th className="px-3 py-1.5 text-center font-mono text-[10px] text-gray-400 uppercase w-12 border-b border-r border-gray-200">#</th>
                                 <th className="px-3 py-1.5 text-center font-mono text-[10px] text-cyan-600 uppercase border-b border-r border-gray-200">T_surf (°C)</th>
                                 <th className="px-3 py-1.5 text-center font-mono text-[10px] text-cyan-600 uppercase border-b border-gray-200">q'' (kW/m²)</th>
+                                {isEditing && (
+                                  <th className="px-3 py-1.5 text-center font-mono text-[10px] text-gray-400 uppercase w-16 border-b border-l border-gray-200">Action</th>
+                                )}
                               </tr>
                             </thead>
                             <tbody>
-                              {[...ds.data].sort((a, b) => a.tSurf - b.tSurf).map((p, i) => (
+                              {(isEditing ? editData : [...ds.data].sort((a, b) => a.tSurf - b.tSurf)).map((p, i) => (
                                 <tr key={i} className="border-b border-gray-100">
                                   <td className="px-3 py-1 text-center font-mono text-[10px] text-gray-400 border-r border-gray-100">{i + 1}</td>
-                                  <td className="px-3 py-1 text-center font-mono text-sm text-gray-700">{p.tSurf}</td>
-                                  <td className="px-3 py-1 text-center font-mono text-sm text-gray-700">{p.qFlux}</td>
+                                  {isEditing ? (
+                                    <>
+                                      <td className="px-1 py-1 text-center border-r border-gray-100">
+                                        <input
+                                          type="number"
+                                          value={p.tSurf}
+                                          onChange={(e) => updateDataPoint(i, "tSurf", e.target.value)}
+                                          className="w-full px-2 py-0.5 rounded border border-gray-200 font-mono text-sm text-center focus:border-cyan-400 focus:outline-none"
+                                        />
+                                      </td>
+                                      <td className="px-1 py-1 text-center">
+                                        <input
+                                          type="number"
+                                          value={p.qFlux}
+                                          onChange={(e) => updateDataPoint(i, "qFlux", e.target.value)}
+                                          className="w-full px-2 py-0.5 rounded border border-gray-200 font-mono text-sm text-center focus:border-cyan-400 focus:outline-none"
+                                        />
+                                      </td>
+                                      <td className="px-1 py-1 text-center border-l border-gray-100">
+                                        <button
+                                          onClick={() => deleteDataPoint(i)}
+                                          className="text-red-500 hover:text-red-400 font-mono text-xs"
+                                        >
+                                          ×
+                                        </button>
+                                      </td>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <td className="px-3 py-1 text-center font-mono text-sm text-gray-700">{p.tSurf}</td>
+                                      <td className="px-3 py-1 text-center font-mono text-sm text-gray-700">{p.qFlux}</td>
+                                    </>
+                                  )}
                                 </tr>
                               ))}
+                              {/* Add new point row (only in edit mode) */}
+                              {isEditing && (
+                                <tr className="border-b border-gray-100 bg-cyan-50/50">
+                                  <td className="px-3 py-1 text-center font-mono text-[10px] text-cyan-600 border-r border-gray-100">+</td>
+                                  <td className="px-1 py-1 text-center border-r border-gray-100">
+                                    <input
+                                      type="number"
+                                      value={newPoint.tSurf}
+                                      onChange={(e) => setNewPoint((prev) => ({ ...prev, tSurf: e.target.value }))}
+                                      placeholder="T_surf"
+                                      className="w-full px-2 py-0.5 rounded border border-cyan-200 font-mono text-sm text-center focus:border-cyan-400 focus:outline-none bg-white"
+                                    />
+                                  </td>
+                                  <td className="px-1 py-1 text-center">
+                                    <input
+                                      type="number"
+                                      value={newPoint.qFlux}
+                                      onChange={(e) => setNewPoint((prev) => ({ ...prev, qFlux: e.target.value }))}
+                                      placeholder="q''"
+                                      className="w-full px-2 py-0.5 rounded border border-cyan-200 font-mono text-sm text-center focus:border-cyan-400 focus:outline-none bg-white"
+                                    />
+                                  </td>
+                                  <td className="px-1 py-1 text-center border-l border-gray-100">
+                                    <button
+                                      onClick={addDataPoint}
+                                      disabled={!newPoint.tSurf || !newPoint.qFlux}
+                                      className="text-cyan-600 hover:text-cyan-500 font-mono text-xs disabled:text-gray-300 disabled:cursor-not-allowed"
+                                    >
+                                      Add
+                                    </button>
+                                  </td>
+                                </tr>
+                              )}
                             </tbody>
                           </table>
                         </div>
@@ -235,7 +667,7 @@ export default function DataManageTab() {
                       <div>
                         <div className={`${lbl} mb-2`}>Boiling Curve</div>
                         <ResponsiveContainer width="100%" height={280}>
-                          <LineChart data={[...ds.data].sort((a, b) => a.tSurf - b.tSurf)} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+                          <LineChart data={[...(isEditing ? editData : ds.data)].sort((a, b) => a.tSurf - b.tSurf)} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                             <XAxis dataKey="tSurf" label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" />
                             <YAxis label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" />
