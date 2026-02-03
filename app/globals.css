@@ -5,6 +5,280 @@
   --font-mono: var(--font-geist-mono);
 }
 
+:root {
+  /* Primary - Cyan accent */
+  --primary: 190 95% 50%;
+  --primary-foreground: 0 0% 100%;
+
+  /* Background colors */
+  --background: 240 20% 98%;
+  --foreground: 240 10% 10%;
+
+  /* Card/Surface */
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 10%;
+
+  /* Muted */
+  --muted: 240 5% 96%;
+  --muted-foreground: 240 5% 45%;
+
+  /* Border */
+  --border: 240 6% 90%;
+  --input: 240 6% 90%;
+
+  /* Accent */
+  --accent: 240 5% 96%;
+  --accent-foreground: 240 10% 10%;
+
+  /* Destructive */
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  /* Ring */
+  --ring: 190 95% 50%;
+
+  /* Chart colors */
+  --chart-1: 190 95% 50%;
+  --chart-2: 160 60% 50%;
+  --chart-3: 45 90% 50%;
+  --chart-4: 280 65% 60%;
+  --chart-5: 340 75% 55%;
+
+  /* Radius */
+  --radius: 0.75rem;
+
+  /* Sidebar */
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 240 10% 10%;
+  --sidebar-accent: 240 5% 96%;
+  --sidebar-accent-foreground: 240 10% 10%;
+  --sidebar-border: 240 6% 90%;
+}
+
+.dark {
+  /* Primary - Cyan accent */
+  --primary: 190 95% 50%;
+  --primary-foreground: 0 0% 100%;
+
+  /* Background - Deep blue */
+  --background: 235 35% 12%;
+  --foreground: 210 20% 95%;
+
+  /* Card/Surface - Slightly lighter */
+  --card: 220 35% 14%;
+  --card-foreground: 210 20% 95%;
+
+  /* Muted */
+  --muted: 220 30% 18%;
+  --muted-foreground: 215 20% 55%;
+
+  /* Border */
+  --border: 220 40% 20%;
+  --input: 220 40% 20%;
+
+  /* Accent */
+  --accent: 220 30% 18%;
+  --accent-foreground: 210 20% 95%;
+
+  /* Destructive */
+  --destructive: 0 65% 55%;
+  --destructive-foreground: 0 0% 100%;
+
+  /* Ring */
+  --ring: 190 95% 50%;
+
+  /* Chart colors */
+  --chart-1: 190 95% 60%;
+  --chart-2: 160 70% 55%;
+  --chart-3: 45 95% 55%;
+  --chart-4: 280 70% 65%;
+  --chart-5: 340 80% 60%;
+
+  /* Sidebar - Dark version */
+  --sidebar: 220 35% 10%;
+  --sidebar-foreground: 210 20% 95%;
+  --sidebar-accent: 220 30% 18%;
+  --sidebar-accent-foreground: 210 20% 95%;
+  --sidebar-border: 220 40% 20%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+/* Glassmorphism utility classes */
+.glass {
+  background: hsl(var(--card) / 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid hsl(var(--border) / 0.5);
+}
+
+.glass-strong {
+  background: hsl(var(--card) / 0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid hsl(var(--border) / 0.6);
+}
+
+.glass-light {
+  background: hsl(var(--card) / 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid hsl(var(--border) / 0.3);
+}
+
+/* Gradient backgrounds */
+.gradient-radial {
+  background: radial-gradient(ellipse at top, hsl(var(--primary) / 0.15), transparent 50%),
+              radial-gradient(ellipse at bottom, hsl(var(--chart-4) / 0.1), transparent 50%);
+}
+
+.gradient-mesh {
+  background:
+    radial-gradient(at 40% 20%, hsl(var(--primary) / 0.2) 0px, transparent 50%),
+    radial-gradient(at 80% 0%, hsl(var(--chart-2) / 0.15) 0px, transparent 50%),
+    radial-gradient(at 0% 50%, hsl(var(--chart-4) / 0.1) 0px, transparent 50%),
+    radial-gradient(at 80% 50%, hsl(var(--chart-3) / 0.1) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, hsl(var(--primary) / 0.15) 0px, transparent 50%);
+}
+
+/* Glow effects */
+.glow-primary {
+  box-shadow: 0 0 20px hsl(var(--primary) / 0.3),
+              0 0 40px hsl(var(--primary) / 0.1);
+}
+
+.glow-success {
+  box-shadow: 0 0 20px hsl(160 70% 50% / 0.3),
+              0 0 40px hsl(160 70% 50% / 0.1);
+}
+
+.glow-warning {
+  box-shadow: 0 0 20px hsl(45 95% 50% / 0.3),
+              0 0 40px hsl(45 95% 50% / 0.1);
+}
+
+.glow-danger {
+  box-shadow: 0 0 20px hsl(0 70% 55% / 0.3),
+              0 0 40px hsl(0 70% 55% / 0.1);
+}
+
+/* Animated gradient border */
+.gradient-border {
+  position: relative;
+  background: hsl(var(--card));
+  z-index: 0;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    hsl(var(--primary) / 0.5),
+    hsl(var(--chart-2) / 0.5),
+    hsl(var(--chart-4) / 0.5),
+    hsl(var(--primary) / 0.5)
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: -1;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Custom focus ring */
+.focus-ring {
+  outline: none;
+}
+
+.focus-ring:focus-visible {
+  box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));
+}
+
+/* Text gradient */
+.text-gradient {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--chart-2)));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Shimmer animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 25%,
+    hsl(var(--muted-foreground) / 0.1) 50%,
+    hsl(var(--muted)) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Pulse glow animation */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px hsl(var(--primary) / 0.5);
+  }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Float animation */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.float {
+  animation: float 3s ease-in-out infinite;
 }

@@ -40,20 +40,43 @@ export interface ExperimentMeta {
 }
 
 export interface LiteratureMeta {
+  // Paper info
   title?: string;
   authors?: string;
   year?: string;
   journal?: string;
   doi?: string;
+  // Experimental conditions (same as ExperimentMeta except date/experimenter)
   fluid?: string;
+  subcooling?: string;
+  pressure?: string;
+  bulkFluidTemp?: string;
+  orientation?: string;
+  flowVelocity?: string;
+  // Heater
+  heaterMaterial?: string;
+  heaterSize?: string;
+  heaterGeometry?: string;
+  // Surface — base
+  baseSurface?: string;
+  ra?: string;
+  rz?: string;
+  contactAngle?: string;
+  // Surface — modification
+  surfaceModification?: string;
+  patternAreaRatio?: string;
+  patternSpacing?: string;
+  patternThickness?: string;
+  structureHeight?: string;
+  porosity?: string;
+  coatingMaterial?: string;
+  coatingThickness?: string;
+  wickingHeight?: string;
+  nucleationSiteDensity?: string;
+  // Legacy fields (for backward compatibility)
   surfaceType?: string;
   surfaceRoughness?: string;
-  heaterGeometry?: string;
-  heaterSize?: string;
-  orientation?: string;
-  pressure?: string;
-  subcooling?: string;
-  flowVelocity?: string;
+  // Notes
   notes?: string;
 }
 

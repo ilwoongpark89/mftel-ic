@@ -1,6 +1,20 @@
 "use client";
+
 import { useState, useEffect } from "react";
+import { motion } from "framer-motion";
+import { Cpu, Thermometer, Zap, Flame } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { chipPresets } from "@/data/chips";
+import { cn } from "@/lib/utils";
 
 export interface ChipSpec {
   tdp: number;
@@ -36,85 +50,140 @@ export default function InputForm({ onChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tdp, chipArea, ambientTemp]);
 
-  const inp =
-    "w-full mt-1 px-3 py-2 bg-[#1a1a2e] border border-[#0f3460] text-cyan-100 rounded font-mono text-sm focus:outline-none focus:border-cyan-400";
+  const heatFlux = tdp / (chipArea * 0.01);
 
   return (
-    <div className="p-5 rounded-xl border bg-[#16213e] border-[#0f3460] space-y-5">
-      <h2 className="text-sm font-bold text-cyan-400 font-mono tracking-wider">
-        {">"} GENERAL DESIGN
-      </h2>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="p-5 rounded-xl glass border border-border/50 space-y-6"
+    >
+      <div className="flex items-center gap-2">
+        <div className="p-2 rounded-lg bg-primary/10">
+          <Cpu className="h-4 w-4 text-primary" />
+        </div>
+        <h2 className="text-sm font-semibold tracking-wide">
+          General Design
+        </h2>
+      </div>
 
-      {/* Preset */}
-      <div>
-        <label className="text-gray-400 text-xs font-mono uppercase tracking-wider">
+      {/* Preset selector */}
+      <div className="space-y-2">
+        <Label className="text-xs text-muted-foreground uppercase tracking-wider">
           GPU / Chip Preset
-        </label>
-        <select
-          className={inp}
-          value={selectedChip}
-          onChange={(e) => handlePresetChange(e.target.value)}
-        >
-          {chipPresets.map((c) => (
-            <option key={c.name} value={c.name}>
-              {c.name} {c.category !== "Custom" ? `(${c.tdp}W, ${c.area}mm²)` : ""}
-            </option>
-          ))}
-        </select>
+        </Label>
+        <Select value={selectedChip} onValueChange={handlePresetChange}>
+          <SelectTrigger className="glass">
+            <SelectValue placeholder="Select a chip" />
+          </SelectTrigger>
+          <SelectContent>
+            {chipPresets.map((c) => (
+              <SelectItem key={c.name} value={c.name}>
+                {c.name} {c.category !== "Custom" ? `(${c.tdp}W)` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* TDP slider */}
-      <div>
-        <div className="flex justify-between items-center mb-1">
-          <label className="text-cyan-400 text-xs font-mono font-bold">MAX POWER — TDP</label>
-          <span className="text-cyan-100 font-mono text-sm font-bold">{tdp} W</span>
+      <div className="space-y-3">
+        <div className="flex justify-between items-center">
+          <Label className="text-xs flex items-center gap-1.5 text-primary font-semibold">
+            <Zap className="h-3.5 w-3.5" />
+            MAX POWER — TDP
+          </Label>
+          <span className="text-sm font-bold tabular-nums">{tdp} W</span>
         </div>
-        <input
-          type="range" min={10} max={3000} step={10} value={tdp}
-          onChange={(e) => { setTdp(Number(e.target.value)); switchToCustom(); }}
-          className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-cyan-500 bg-[#0f3460]"
+        <Slider
+          value={[tdp]}
+          onValueChange={([v]) => {
+            setTdp(v);
+            switchToCustom();
+          }}
+          min={10}
+          max={3000}
+          step={10}
+          className="py-2"
         />
-        <div className="flex justify-between text-[10px] text-gray-600 font-mono mt-0.5">
-          <span>10W</span><span>3000W</span>
+        <div className="flex justify-between text-[10px] text-muted-foreground">
+          <span>10W</span>
+          <span>3000W</span>
         </div>
       </div>
 
       {/* Die area slider */}
-      <div>
-        <div className="flex justify-between items-center mb-1">
-          <label className="text-cyan-400 text-xs font-mono font-bold">DIE AREA</label>
-          <span className="text-cyan-100 font-mono text-sm font-bold">{chipArea} mm²</span>
+      <div className="space-y-3">
+        <div className="flex justify-between items-center">
+          <Label className="text-xs flex items-center gap-1.5 text-primary font-semibold">
+            <Cpu className="h-3.5 w-3.5" />
+            DIE AREA
+          </Label>
+          <span className="text-sm font-bold tabular-nums">{chipArea} mm²</span>
         </div>
-        <input
-          type="range" min={50} max={1500} step={10} value={chipArea}
-          onChange={(e) => { setChipArea(Number(e.target.value)); switchToCustom(); }}
-          className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-cyan-500 bg-[#0f3460]"
+        <Slider
+          value={[chipArea]}
+          onValueChange={([v]) => {
+            setChipArea(v);
+            switchToCustom();
+          }}
+          min={50}
+          max={1500}
+          step={10}
+          className="py-2"
         />
-        <div className="flex justify-between text-[10px] text-gray-600 font-mono mt-0.5">
-          <span>50mm²</span><span>1500mm²</span>
+        <div className="flex justify-between text-[10px] text-muted-foreground">
+          <span>50mm²</span>
+          <span>1500mm²</span>
         </div>
       </div>
 
-      {/* q'' readout */}
-      <div className="p-3 rounded-lg bg-[#1a1a2e] border border-[#0f3460]">
+      {/* Heat flux readout */}
+      <motion.div
+        key={heatFlux.toFixed(1)}
+        initial={{ scale: 0.95 }}
+        animate={{ scale: 1 }}
+        className={cn(
+          "p-4 rounded-lg glass border",
+          heatFlux > 100
+            ? "border-amber-500/50 bg-amber-500/5"
+            : "border-border/50"
+        )}
+      >
         <div className="flex justify-between items-center">
-          <span className="text-gray-400 text-xs font-mono">q&quot; (heat flux)</span>
-          <span className="text-yellow-400 font-mono text-sm font-bold">
-            {(tdp / (chipArea * 0.01)).toFixed(1)} W/cm²
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <Flame className={cn("h-4 w-4", heatFlux > 100 && "text-amber-500")} />
+            <span className="text-xs">Heat Flux (q&quot;)</span>
+          </div>
+          <span
+            className={cn(
+              "text-lg font-bold tabular-nums",
+              heatFlux > 100 ? "text-amber-500" : "text-primary"
+            )}
+          >
+            {heatFlux.toFixed(1)} W/cm²
+          </span>
+        </div>
+      </motion.div>
+
+      {/* Ambient temperature */}
+      <div className="space-y-2">
+        <Label className="text-xs flex items-center gap-1.5 text-muted-foreground uppercase tracking-wider">
+          <Thermometer className="h-3.5 w-3.5" />
+          Ambient Temperature
+        </Label>
+        <div className="relative">
+          <Input
+            type="number"
+            value={ambientTemp}
+            onChange={(e) => setAmbientTemp(Number(e.target.value))}
+            className="pr-8 glass"
+          />
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+            °C
           </span>
         </div>
       </div>
-
-      {/* Ambient temp */}
-      <div>
-        <label className="text-gray-400 text-xs font-mono uppercase tracking-wider">
-          Ambient Temperature (°C)
-        </label>
-        <input
-          type="number" className={inp} value={ambientTemp}
-          onChange={(e) => setAmbientTemp(Number(e.target.value))}
-        />
-      </div>
-    </div>
+    </motion.div>
   );
 }

@@ -1,8 +1,14 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
+
+import { useState, useRef, useCallback, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
+import {
+  Beaker, FileText, ChevronDown, ChevronUp, Upload, Image, Trash2,
+  RotateCcw, Check, Sparkles, FlaskConical, Thermometer, Gauge,
+} from "lucide-react";
 import {
   BoilingDataPoint, BoilingDataset, DataSource, ExperimentMeta, LiteratureMeta,
   saveDataset, parseCSV,
@@ -12,7 +18,6 @@ interface Props {
   onSaved: () => void;
 }
 
-// ── Unit options ──
 const T_UNITS = [
   { key: "C", label: "°C", toC: (v: number) => v },
   { key: "K", label: "K", toC: (v: number) => v - 273.15 },
@@ -28,80 +33,92 @@ const Q_UNITS = [
 type TUnit = typeof T_UNITS[number]["key"];
 type QUnit = typeof Q_UNITS[number]["key"];
 
-// ── Experiment condition fields (grouped) ──
-type ExpFieldDef = { key: keyof ExperimentMeta; label: string; placeholder: string; type?: "date" | "text" };
-type ExpGroup = { title: string; fields: ExpFieldDef[] };
+interface FieldDef {
+  key: string;
+  label: string;
+  placeholder: string;
+  type?: string;
+  hint?: string;
+  computed?: boolean;
+}
 
-const EXPERIMENT_GROUPS: ExpGroup[] = [
+interface SectionDef {
+  id: string;
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: string;
+  fields: FieldDef[];
+}
+
+// Working fluid options
+const FLUID_OPTIONS = [
+  { key: "novec7100", label: "Novec 7100", tSat: 61 },
+  { key: "novec649", label: "Novec 649", tSat: 49 },
+  { key: "fc72", label: "FC-72", tSat: 56 },
+  { key: "fc77", label: "FC-77", tSat: 97 },
+  { key: "water", label: "Water", tSat: 100 },
+  { key: "hfe7100", label: "HFE-7100", tSat: 61 },
+  { key: "r134a", label: "R-134a", tSat: -26 },
+  { key: "other", label: "Other", tSat: null },
+];
+
+// Collapsible sections config
+const EXPERIMENT_SECTIONS: SectionDef[] = [
   {
-    title: "GENERAL",
+    id: "conditions",
+    title: "Experimental Conditions",
+    icon: FlaskConical,
+    color: "blue",
     fields: [
-      { key: "date", label: "Date", placeholder: "", type: "date" },
-      { key: "experimenter", label: "Experimenter", placeholder: "e.g. 홍길동" },
-      { key: "fluid", label: "Working Fluid", placeholder: "e.g. Novec 7100, FC-72, Water" },
-      { key: "subcooling", label: "Subcooling (ΔT_sub)", placeholder: "e.g. 0 K, 10 K" },
-      { key: "pressure", label: "System Pressure", placeholder: "e.g. 1 atm, 101.3 kPa" },
-      { key: "bulkFluidTemp", label: "Bulk Fluid Temp", placeholder: "e.g. 50 °C" },
-      { key: "orientation", label: "Orientation", placeholder: "e.g. Horizontal Up, Vertical, 45°" },
-      { key: "flowVelocity", label: "Flow Velocity", placeholder: "e.g. 0 m/s (pool), 0.5 m/s" },
+      { key: "pressure", label: "Pressure", placeholder: "1 atm", type: "text" },
+      { key: "subcooling", label: "Subcooling (K)", placeholder: "0", type: "number" },
+      { key: "orientation", label: "Angle (°)", placeholder: "0", type: "number" },
+      { key: "trialNumber", label: "Trial #", placeholder: "1", type: "number" },
     ],
   },
   {
-    title: "HEATER",
+    id: "heater",
+    title: "Heater Info",
+    icon: Thermometer,
+    color: "orange",
     fields: [
-      { key: "heaterMaterial", label: "Heater Material", placeholder: "e.g. Copper, Silicon, Stainless Steel" },
-      { key: "heaterSize", label: "Heater Size", placeholder: "e.g. 10 × 10 mm²" },
-      { key: "heaterGeometry", label: "Heater Geometry", placeholder: "e.g. Flat plate, Cylinder, Chip-scale" },
+      { key: "heaterMaterial", label: "Material", placeholder: "Si", type: "text" },
+      { key: "heaterSize", label: "Size (mm)", placeholder: "15 × 20", type: "text" },
     ],
   },
   {
-    title: "SURFACE — BASE",
+    id: "surface",
+    title: "Surface Properties",
+    icon: Gauge,
+    color: "purple",
     fields: [
-      { key: "baseSurface", label: "Base Surface", placeholder: "e.g. Plain polished copper, Sandblasted Cu" },
-      { key: "ra", label: "Ra (μm)", placeholder: "e.g. 0.5" },
-      { key: "rz", label: "Rz (μm)", placeholder: "e.g. 3.2" },
-      { key: "contactAngle", label: "Contact Angle (°)", placeholder: "e.g. 85" },
+      { key: "baseSurface", label: "Base Surface", placeholder: "Polished Si", type: "text" },
+      { key: "ra", label: "Ra (μm)", placeholder: "0.5", type: "text" },
+      { key: "contactAngle", label: "Contact Angle (°)", placeholder: "85", type: "text" },
     ],
   },
   {
-    title: "SURFACE — MODIFICATION",
+    id: "modification",
+    title: "Surface Modification",
+    icon: Sparkles,
+    color: "teal",
     fields: [
-      { key: "surfaceModification", label: "Modification Method", placeholder: "e.g. LIG, Sintering, Etching, Coating, CNC micro-milling" },
-      { key: "patternAreaRatio", label: "Pattern Area Ratio (%)", placeholder: "e.g. 50" },
-      { key: "patternSpacing", label: "Pattern Spacing (μm)", placeholder: "e.g. 200" },
-      { key: "patternThickness", label: "Pattern Thickness (μm)", placeholder: "e.g. 30" },
-      { key: "structureHeight", label: "Structure Height (μm)", placeholder: "e.g. 100" },
-      { key: "porosity", label: "Porosity (%)", placeholder: "e.g. 40" },
-      { key: "coatingMaterial", label: "Coating Material", placeholder: "e.g. Graphene, TiO₂, SiO₂, PTFE" },
-      { key: "coatingThickness", label: "Coating Thickness (μm)", placeholder: "e.g. 5" },
-      { key: "wickingHeight", label: "Wicking Height (mm)", placeholder: "e.g. 15" },
-      { key: "nucleationSiteDensity", label: "Nucleation Site Density (cm⁻²)", placeholder: "e.g. 50" },
-    ],
-  },
-  {
-    title: "NOTES",
-    fields: [
-      { key: "notes", label: "Notes / Remarks", placeholder: "Any additional info" },
+      { key: "surfaceModification", label: "Method", placeholder: "LIG (Graphene)", type: "text" },
+      { key: "structureWidth", label: "Structure Width (μm)", placeholder: "100", type: "number" },
+      { key: "structureSpacing", label: "Structure Spacing (μm)", placeholder: "200", type: "number" },
+      { key: "surfaceFraction", label: "Surface Fraction (%)", placeholder: "Auto", type: "text", computed: true },
+      { key: "structureHeight", label: "Structure Height (μm)", placeholder: "30", type: "text" },
+      { key: "wettability", label: "Wettability", placeholder: "Hydrophilic", type: "text" },
     ],
   },
 ];
 
-const LITERATURE_FIELDS: { key: keyof LiteratureMeta; label: string; placeholder: string }[] = [
-  { key: "title", label: "Paper Title", placeholder: "e.g. Pool boiling heat transfer on micro-structured surfaces" },
-  { key: "authors", label: "Authors", placeholder: "e.g. Kim J., Park I.W., et al." },
-  { key: "year", label: "Year", placeholder: "e.g. 2023" },
-  { key: "journal", label: "Journal / Conference", placeholder: "e.g. International Journal of Heat and Mass Transfer" },
-  { key: "doi", label: "DOI", placeholder: "e.g. 10.1016/j.ijheatmasstransfer.2023.xxxxx" },
-  { key: "fluid", label: "Working Fluid", placeholder: "e.g. Novec 7100, FC-72, Water, HFE-7200" },
-  { key: "surfaceType", label: "Surface Type", placeholder: "e.g. Plain copper, Microporous, Nanostructured, Finned" },
-  { key: "surfaceRoughness", label: "Surface Roughness", placeholder: "e.g. Ra = 0.5 μm" },
-  { key: "heaterGeometry", label: "Heater Geometry", placeholder: "e.g. Flat plate, Cylinder, Chip-scale" },
-  { key: "heaterSize", label: "Heater Size", placeholder: "e.g. 10 × 10 mm², D = 5 mm" },
-  { key: "orientation", label: "Orientation / Angle", placeholder: "e.g. Horizontal upward, Vertical, 45°" },
-  { key: "pressure", label: "System Pressure", placeholder: "e.g. 1 atm, 101.3 kPa" },
-  { key: "subcooling", label: "Subcooling (ΔT_sub)", placeholder: "e.g. 0 K (saturated), 10 K" },
-  { key: "flowVelocity", label: "Flow Velocity", placeholder: "e.g. 0 m/s (pool), 0.5 m/s" },
-  { key: "notes", label: "Notes / Remarks", placeholder: "Any additional info about the data" },
+const LITERATURE_FIELDS = [
+  { key: "title", label: "Paper Title", placeholder: "Pool boiling heat transfer..." },
+  { key: "authors", label: "Authors", placeholder: "Kim J., Park I.W." },
+  { key: "year", label: "Year", placeholder: "2024" },
+  { key: "journal", label: "Journal", placeholder: "Int. J. Heat Mass Transfer" },
+  { key: "doi", label: "DOI", placeholder: "10.1016/..." },
 ];
 
 const INITIAL_ROWS = 15;
@@ -110,25 +127,105 @@ function emptyRows(n: number): BoilingDataPoint[] {
   return Array.from({ length: n }, () => ({ tSurf: 0, qFlux: 0 }));
 }
 
+// Default values
+const DEFAULT_EXP_META: ExperimentMeta = {
+  date: new Date().toISOString().split("T")[0],
+  fluid: "novec7100",
+  subcooling: "0",
+  pressure: "1 atm",
+  orientation: "0",
+  trialNumber: "1",
+  heaterMaterial: "Si",
+  heaterSize: "15 × 20",
+  baseSurface: "Polished Si",
+  ra: "0.5",
+  contactAngle: "85",
+  surfaceModification: "LIG (Graphene)",
+  surfaceFraction: "50",
+  wettability: "Hydrophilic",
+  structureWidth: "100",
+  structureSpacing: "200",
+  structureHeight: "30",
+};
+
+const SAMPLE_DATA: BoilingDataPoint[] = [
+  { tSurf: 62, qFlux: 5 },
+  { tSurf: 65, qFlux: 15 },
+  { tSurf: 68, qFlux: 35 },
+  { tSurf: 71, qFlux: 60 },
+  { tSurf: 74, qFlux: 95 },
+  { tSurf: 77, qFlux: 140 },
+  { tSurf: 80, qFlux: 190 },
+  { tSurf: 83, qFlux: 250 },
+  { tSurf: 85, qFlux: 300 },
+  { tSurf: 87, qFlux: 350 },
+];
+
 export default function DataInputTab({ onSaved }: Props) {
   const [source, setSource] = useState<DataSource>("experiment");
   const [name, setName] = useState("");
   const [rows, setRows] = useState<BoilingDataPoint[]>(emptyRows(INITIAL_ROWS));
-  const [expMeta, setExpMeta] = useState<ExperimentMeta>({});
+  const [expMeta, setExpMeta] = useState<ExperimentMeta>(DEFAULT_EXP_META);
   const [literature, setLiterature] = useState<LiteratureMeta>({});
   const [checked, setChecked] = useState(false);
   const [chartData, setChartData] = useState<BoilingDataPoint[] | null>(null);
   const [tUnit, setTUnit] = useState<TUnit>("C");
   const [qUnit, setQUnit] = useState<QUnit>("kW/m2");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [expandedSections, setExpandedSections] = useState<string[]>(["conditions", "modification"]);
   const fileRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLInputElement>(null);
 
-  const resetForm = () => {
+  // Auto-calculate surface fraction from width and spacing
+  const calculatedFraction = useMemo(() => {
+    const width = parseFloat(expMeta.structureWidth || "0");
+    const spacing = parseFloat(expMeta.structureSpacing || "0");
+    if (width > 0 && spacing > 0) {
+      // 1D pattern: fraction = width / (width + spacing)
+      const fraction = (width / (width + spacing)) * 100;
+      return fraction.toFixed(1);
+    }
+    return null;
+  }, [expMeta.structureWidth, expMeta.structureSpacing]);
+
+  // Auto-generate dataset name suggestion
+  const suggestedName = useMemo(() => {
+    if (source === "literature") {
+      const author = literature.authors?.split(",")[0]?.split(" ")[0] || "";
+      const year = literature.year || "";
+      const fluid = literature.fluid || "";
+      return author && year ? `${author}${year}-${fluid}`.replace(/\s+/g, "") : "";
+    }
+
+    const fluid = FLUID_OPTIONS.find(f => f.key === expMeta.fluid)?.label || "";
+    const mod = expMeta.surfaceModification?.split(" ")[0] || "Plain";
+    const frac = calculatedFraction || expMeta.surfaceFraction;
+    const fracStr = frac ? `${frac}%` : "";
+    const trial = expMeta.trialNumber && expMeta.trialNumber !== "1" ? `-T${expMeta.trialNumber}` : "";
+
+    return `${mod}${fracStr}-${fluid}${trial}`.replace(/\s+/g, "");
+  }, [source, expMeta, literature, calculatedFraction]);
+
+  const toggleSection = (id: string) => {
+    setExpandedSections((prev) =>
+      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+    );
+  };
+
+  const resetForm = (clearAll = false) => {
     setRows(emptyRows(INITIAL_ROWS));
+    setName("");
     setChecked(false);
     setChartData(null);
     setImagePreview(null);
+    if (clearAll) {
+      setExpMeta({});
+      setLiterature({});
+    } else {
+      // Keep default metadata, but clear data
+      setExpMeta(DEFAULT_EXP_META);
+      setLiterature({});
+    }
   };
 
   const invalidate = () => { setChecked(false); setChartData(null); };
@@ -144,6 +241,55 @@ export default function DataInputTab({ onSaved }: Props) {
       return next;
     });
     invalidate();
+  }, []);
+
+  const handleCellKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number, field: "tSurf" | "qFlux") => {
+    const colIndex = field === "tSurf" ? 0 : 1;
+    let targetRow = rowIndex;
+    let targetCol = colIndex;
+
+    switch (e.key) {
+      case "ArrowUp":
+        e.preventDefault();
+        targetRow = Math.max(0, rowIndex - 1);
+        break;
+      case "ArrowDown":
+      case "Enter":
+        e.preventDefault();
+        targetRow = rowIndex + 1;
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        if (colIndex === 0) {
+          targetRow = Math.max(0, rowIndex - 1);
+          targetCol = 1;
+        } else {
+          targetCol = 0;
+        }
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        if (colIndex === 1) {
+          targetRow = rowIndex + 1;
+          targetCol = 0;
+        } else {
+          targetCol = 1;
+        }
+        break;
+      case "Tab":
+        return;
+      default:
+        return;
+    }
+
+    const targetField = targetCol === 0 ? "tSurf" : "qFlux";
+    const targetInput = document.querySelector(
+      `input[data-row="${targetRow}"][data-field="${targetField}"]`
+    ) as HTMLInputElement | null;
+    if (targetInput) {
+      targetInput.focus();
+      targetInput.select();
+    }
   }, []);
 
   const handleCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -186,6 +332,10 @@ export default function DataInputTab({ onSaved }: Props) {
     if (valid.length < 2) return;
     setChartData([...valid].sort((a, b) => a.tSurf - b.tSurf));
     setChecked(true);
+    // Auto-fill name if empty
+    if (!name && suggestedName) {
+      setName(suggestedName);
+    }
   };
 
   const handleSave = () => {
@@ -214,261 +364,461 @@ export default function DataInputTab({ onSaved }: Props) {
     setLiterature((prev) => ({ ...prev, [key]: val || undefined }));
   };
 
-  const inp = "w-full px-3 py-2 bg-white border border-gray-300 text-gray-900 rounded font-mono text-sm focus:outline-none focus:border-cyan-500";
-  const lbl = "text-gray-500 text-[10px] font-mono uppercase tracking-wider";
-  const cellInp = "w-full px-2 py-1.5 bg-transparent border-0 text-gray-900 font-mono text-sm focus:outline-none focus:bg-cyan-50 text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+  const filledRows = rows.filter((r) => r.tSurf !== 0 || r.qFlux !== 0).length;
 
   return (
     <div className="space-y-6">
-      {/* Source toggle */}
-      <div className="flex gap-2">
-        {([
-          { key: "experiment" as const, label: "EXPERIMENT", desc: "Our Lab Data" },
-          { key: "literature" as const, label: "LITERATURE", desc: "Published Paper Data" },
-        ]).map((s) => (
-          <button
-            key={s.key}
-            onClick={() => { setSource(s.key); resetForm(); }}
-            className={`flex-1 px-4 py-3 rounded-lg border font-mono text-sm transition ${
-              source === s.key
-                ? "bg-cyan-500/15 border-cyan-500 text-cyan-700"
-                : "bg-gray-50 border-gray-300 text-gray-500 hover:border-gray-400"
-            }`}
-          >
-            <div className="font-bold">{s.label}</div>
-            <div className="text-[10px] opacity-60 mt-0.5">{s.desc}</div>
-          </button>
-        ))}
-      </div>
-
-      {/* Conditions panel */}
-      <div className="p-5 rounded-xl border bg-white border-gray-200 shadow-sm">
-        <h3 className="text-sm font-bold text-cyan-600 font-mono tracking-wider mb-4">
-          {">"} {source === "experiment" ? "EXPERIMENT CONDITIONS" : "LITERATURE INFO"}
-        </h3>
-
-        {/* Dataset name */}
-        <div className="mb-4">
-          <label className={lbl}>Dataset Name</label>
-          <input
-            type="text"
-            className={`${inp} mt-1`}
-            placeholder={source === "experiment" ? "e.g. LIG-50%-200μm-Novec7100" : "e.g. Kim2023 - FC72 Microporous"}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+      {/* Header with source toggle */}
+      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Add New Dataset</h2>
+          <p className="text-sm text-gray-500 mt-1">Enter your boiling curve data</p>
         </div>
 
-        {/* Experiment metadata (grouped) */}
-        {source === "experiment" && EXPERIMENT_GROUPS.map((g) => (
-          <div key={g.title} className="mb-4">
-            <div className="text-[10px] font-bold text-cyan-600/60 font-mono tracking-wider mb-2 border-b border-gray-200 pb-1">
-              {g.title}
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {g.fields.map((f) => (
-                <div key={f.key} className={f.key === "notes" ? "col-span-full" : ""}>
-                  <label className={lbl}>{f.label}</label>
-                  {f.key === "notes" ? (
-                    <textarea
-                      className={`${inp} mt-1 h-14 resize-none`}
-                      placeholder={f.placeholder}
-                      value={expMeta[f.key] || ""}
-                      onChange={(e) => updateExp(f.key, e.target.value)}
-                    />
-                  ) : (
-                    <input
-                      type={f.type === "date" ? "date" : "text"}
-                      className={`${inp} mt-1`}
-                      placeholder={f.placeholder}
-                      value={expMeta[f.key] || ""}
-                      onChange={(e) => updateExp(f.key, e.target.value)}
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-
-        {/* Literature metadata */}
-        {source === "literature" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {LITERATURE_FIELDS.map((f) => (
-              <div key={f.key} className={f.key === "title" || f.key === "notes" ? "md:col-span-2" : ""}>
-                <label className={lbl}>{f.label}</label>
-                {f.key === "notes" ? (
-                  <textarea
-                    className={`${inp} mt-1 h-16 resize-none`}
-                    placeholder={f.placeholder}
-                    value={literature[f.key] || ""}
-                    onChange={(e) => updateLit(f.key, e.target.value)}
-                  />
-                ) : (
-                  <input
-                    type="text"
-                    className={`${inp} mt-1`}
-                    placeholder={f.placeholder}
-                    value={literature[f.key] || ""}
-                    onChange={(e) => updateLit(f.key, e.target.value)}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Data entry panel */}
-      <div className="p-5 rounded-xl border bg-white border-gray-200 shadow-sm">
-        <h3 className="text-sm font-bold text-cyan-600 font-mono tracking-wider mb-4">
-          {">"} DATA POINTS
-        </h3>
-
-        {/* Image upload */}
-        <div className="mb-4">
-          <div className="flex gap-3 items-center mb-2">
-            <span className={lbl}>Reference Image (optional)</span>
+        {/* Source toggle - pill style */}
+        <div className="flex p-1 bg-gray-100 rounded-full">
+          {([
+            { key: "experiment" as const, label: "Experiment", icon: Beaker },
+            { key: "literature" as const, label: "Literature", icon: FileText },
+          ]).map((s) => (
             <button
-              onClick={() => imgRef.current?.click()}
-              className="px-3 py-1 rounded border border-gray-300 bg-gray-50 text-cyan-700 font-mono text-xs hover:border-cyan-500 transition"
+              key={s.key}
+              onClick={() => { setSource(s.key); resetForm(); }}
+              className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-all ${
+                source === s.key
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
             >
-              Upload Image
+              <s.icon className="h-4 w-4" />
+              {s.label}
             </button>
-            <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-            {imagePreview && (
-              <button onClick={() => setImagePreview(null)} className="text-red-500 hover:text-red-400 font-mono text-xs">Remove</button>
-            )}
-          </div>
-          {imagePreview && (
-            <div className="rounded-lg border border-gray-200 overflow-hidden bg-gray-50 p-2 mb-4">
-              <img src={imagePreview} alt="Reference" className="max-h-64 mx-auto rounded" />
-            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Main layout - 2 columns on large screens */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        {/* Left column - Metadata (2/5) */}
+        <div className="lg:col-span-2 space-y-4">
+          {/* Working Fluid selector (for experiment) */}
+          {source === "experiment" && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-100"
+            >
+              <label className="flex items-center gap-2 text-sm font-semibold text-blue-700 mb-3">
+                <Beaker className="h-4 w-4" />
+                Working Fluid
+              </label>
+              <select
+                value={expMeta.fluid || "novec7100"}
+                onChange={(e) => updateExp("fluid", e.target.value)}
+                className="w-full px-4 py-3 bg-white border-2 border-blue-200 text-gray-900 rounded-xl text-base font-medium focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all cursor-pointer"
+              >
+                {FLUID_OPTIONS.map((f) => (
+                  <option key={f.key} value={f.key}>
+                    {f.label} {f.tSat !== null ? `(T_sat: ${f.tSat}°C)` : ""}
+                  </option>
+                ))}
+              </select>
+            </motion.div>
           )}
-        </div>
 
-        {/* Import tools + unit selectors */}
-        <div className="flex gap-3 mb-3 items-center flex-wrap">
-          <button
-            onClick={() => fileRef.current?.click()}
-            className="px-3 py-1 rounded border border-gray-300 bg-gray-50 text-cyan-700 font-mono text-xs hover:border-cyan-500 transition"
+          {/* Literature paper info */}
+          {source === "literature" && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm"
+            >
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-pink-600 mb-4">
+                <FileText className="h-4 w-4" />
+                Paper Information
+              </h3>
+              <div className="space-y-3">
+                {LITERATURE_FIELDS.map((f) => (
+                  <div key={f.key}>
+                    <label className="text-xs font-medium text-gray-500 mb-1 block">{f.label}</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 text-gray-900 rounded-lg text-sm focus:outline-none focus:border-pink-400 focus:bg-white transition-all"
+                      placeholder={f.placeholder}
+                      value={literature[f.key as keyof LiteratureMeta] || ""}
+                      onChange={(e) => updateLit(f.key as keyof LiteratureMeta, e.target.value)}
+                    />
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Collapsible sections */}
+          {EXPERIMENT_SECTIONS.map((section, idx) => {
+            const isExpanded = expandedSections.includes(section.id);
+            const Icon = section.icon;
+            const colorMap = {
+              blue: { bg: "bg-blue-50", border: "border-blue-200", text: "text-blue-600", ring: "ring-blue-500/20" },
+              orange: { bg: "bg-orange-50", border: "border-orange-200", text: "text-orange-600", ring: "ring-orange-500/20" },
+              purple: { bg: "bg-purple-50", border: "border-purple-200", text: "text-purple-600", ring: "ring-purple-500/20" },
+              teal: { bg: "bg-teal-50", border: "border-teal-200", text: "text-teal-600", ring: "ring-teal-500/20" },
+            };
+            const colors = colorMap[section.color as keyof typeof colorMap];
+
+            return (
+              <motion.div
+                key={section.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.05 }}
+                className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
+              >
+                <button
+                  onClick={() => toggleSection(section.id)}
+                  className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${colors.bg}`}>
+                      <Icon className={`h-4 w-4 ${colors.text}`} />
+                    </div>
+                    <span className="font-semibold text-gray-900">{section.title}</span>
+                  </div>
+                  {isExpanded ? (
+                    <ChevronUp className="h-5 w-5 text-gray-400" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5 text-gray-400" />
+                  )}
+                </button>
+                <AnimatePresence>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 pb-4 grid grid-cols-2 gap-3">
+                        {section.fields.map((f) => {
+                          // Check if this is the computed surfaceFraction field
+                          const isComputedFraction = f.key === "surfaceFraction" && f.computed;
+                          const computedValue = isComputedFraction && calculatedFraction ? calculatedFraction : null;
+
+                          return (
+                            <div key={f.key}>
+                              <label className="text-xs font-medium text-gray-500 mb-1 block truncate" title={f.hint || ""}>
+                                {f.label}
+                              </label>
+                              {isComputedFraction ? (
+                                <div className="relative">
+                                  <input
+                                    type="text"
+                                    className={`w-full px-3 py-2 border border-gray-200 text-gray-900 rounded-lg text-sm focus:outline-none transition-all ${
+                                      computedValue ? "bg-teal-50 border-teal-300" : "bg-gray-50 focus:border-blue-400 focus:bg-white"
+                                    }`}
+                                    placeholder={f.placeholder}
+                                    value={computedValue || (source === "experiment" ? (expMeta.surfaceFraction || "") : "")}
+                                    onChange={(e) => updateExp("surfaceFraction", e.target.value)}
+                                    readOnly={!!computedValue}
+                                  />
+                                  {computedValue && (
+                                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-teal-600 font-medium">
+                                      Auto
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <input
+                                  type={f.type || "text"}
+                                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 text-gray-900 rounded-lg text-sm focus:outline-none focus:border-blue-400 focus:bg-white transition-all"
+                                  placeholder={f.placeholder}
+                                  value={source === "experiment"
+                                    ? (expMeta[f.key as keyof ExperimentMeta] || "")
+                                    : (literature[f.key as keyof LiteratureMeta] || "")}
+                                  onChange={(e) => source === "experiment"
+                                    ? updateExp(f.key as keyof ExperimentMeta, e.target.value)
+                                    : updateLit(f.key as keyof LiteratureMeta, e.target.value)}
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
+            );
+          })}
+
+          {/* Reference image */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            className="p-4 bg-white rounded-2xl border border-gray-200 shadow-sm"
           >
-            Upload CSV
-          </button>
-          <input ref={fileRef} type="file" accept=".csv,.tsv,.txt" className="hidden" onChange={handleCSV} />
-          <span className="text-gray-400 font-mono text-[10px]">or paste into table</span>
-          <div className="ml-auto flex gap-2 items-center">
-            <span className={lbl}>T unit:</span>
-            <select className="px-2 py-1 bg-white border border-gray-300 text-gray-900 rounded font-mono text-xs focus:outline-none focus:border-cyan-500"
-              value={tUnit} onChange={(e) => { setTUnit(e.target.value as TUnit); invalidate(); }}>
-              {T_UNITS.map((u) => <option key={u.key} value={u.key}>{u.label}</option>)}
-            </select>
-            <span className={lbl}>q&apos;&apos; unit:</span>
-            <select className="px-2 py-1 bg-white border border-gray-300 text-gray-900 rounded font-mono text-xs focus:outline-none focus:border-cyan-500"
-              value={qUnit} onChange={(e) => { setQUnit(e.target.value as QUnit); invalidate(); }}>
-              {Q_UNITS.map((u) => <option key={u.key} value={u.key}>{u.label}</option>)}
-            </select>
-          </div>
+            <div className="flex items-center justify-between mb-3">
+              <span className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                <Image className="h-4 w-4" />
+                Reference Image
+              </span>
+              {!imagePreview ? (
+                <button
+                  onClick={() => imgRef.current?.click()}
+                  className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-medium rounded-lg transition-colors"
+                >
+                  Upload
+                </button>
+              ) : (
+                <button
+                  onClick={() => setImagePreview(null)}
+                  className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium rounded-lg transition-colors"
+                >
+                  Remove
+                </button>
+              )}
+              <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+            </div>
+            {imagePreview ? (
+              <img src={imagePreview} alt="Reference" className="rounded-lg w-full object-cover max-h-40" />
+            ) : (
+              <div className="h-24 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center text-gray-400 text-sm">
+                Optional: Upload chart image
+              </div>
+            )}
+          </motion.div>
         </div>
 
-        {/* Spreadsheet table */}
-        <div className="rounded-lg border border-gray-200 overflow-hidden max-h-[500px] overflow-y-auto" onPaste={handlePaste}>
-          <table className="w-full">
-            <thead className="sticky top-0 z-10">
-              <tr className="bg-gray-50">
-                <th className="px-3 py-2 text-center font-mono text-[10px] text-gray-400 uppercase w-12 border-b border-r border-gray-200">#</th>
-                <th className="px-3 py-2 text-center font-mono text-[10px] text-cyan-600 uppercase border-b border-r border-gray-200">
-                  T_surf ({T_UNITS.find((u) => u.key === tUnit)!.label})
-                </th>
-                <th className="px-3 py-2 text-center font-mono text-[10px] text-cyan-600 uppercase border-b border-gray-200">
-                  q&apos;&apos; ({Q_UNITS.find((u) => u.key === qUnit)!.label})
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => (
-                <tr key={i} className="border-b border-gray-100 hover:bg-cyan-50/30 transition">
-                  <td className="px-3 py-0 text-center font-mono text-[10px] text-gray-400 border-r border-gray-100">{i + 1}</td>
-                  <td className="px-0 py-0 border-r border-gray-100">
-                    <input
-                      type="number"
-                      className={cellInp}
-                      value={row.tSurf || ""}
-                      onChange={(e) => updateRow(i, "tSurf", e.target.value)}
-                      tabIndex={i * 2 + 1}
-                    />
-                  </td>
-                  <td className="px-0 py-0">
-                    <input
-                      type="number"
-                      className={cellInp}
-                      value={row.qFlux || ""}
-                      onChange={(e) => updateRow(i, "qFlux", e.target.value)}
-                      tabIndex={i * 2 + 2}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {/* Right column - Data entry (3/5) */}
+        <div className="lg:col-span-3 space-y-4">
+          {/* Data entry card */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
+          >
+            {/* Header with units and import */}
+            <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-500">T_surf:</span>
+                    <select
+                      className="px-2 py-1 bg-white border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500"
+                      value={tUnit}
+                      onChange={(e) => { setTUnit(e.target.value as TUnit); invalidate(); }}
+                    >
+                      {T_UNITS.map((u) => <option key={u.key} value={u.key}>{u.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-500">q&apos;&apos;:</span>
+                    <select
+                      className="px-2 py-1 bg-white border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:border-blue-500"
+                      value={qUnit}
+                      onChange={(e) => { setQUnit(e.target.value as QUnit); invalidate(); }}
+                    >
+                      {Q_UNITS.map((u) => <option key={u.key} value={u.key}>{u.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 hover:border-blue-400 text-gray-600 text-sm font-medium rounded-lg transition-colors"
+                >
+                  <Upload className="h-4 w-4" />
+                  Import CSV
+                </button>
+                <input ref={fileRef} type="file" accept=".csv,.tsv,.txt" className="hidden" onChange={handleCSV} />
+              </div>
+            </div>
 
-        {/* Actions */}
-        <div className="flex gap-3 mt-4">
+            {/* Table */}
+            <div className="max-h-[400px] overflow-y-auto" onPaste={handlePaste}>
+              <table className="w-full">
+                <thead className="sticky top-0 z-10 bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-center text-xs font-bold text-gray-400 uppercase w-16 border-b border-r border-gray-200">#</th>
+                    <th className="px-4 py-3 text-center text-xs font-bold text-blue-600 uppercase border-b border-r border-gray-200">
+                      T_surf ({T_UNITS.find((u) => u.key === tUnit)!.label})
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-bold text-blue-600 uppercase border-b border-gray-200">
+                      q&apos;&apos; ({Q_UNITS.find((u) => u.key === qUnit)!.label})
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, i) => {
+                    const hasValue = row.tSurf !== 0 || row.qFlux !== 0;
+                    return (
+                      <tr
+                        key={i}
+                        className={`border-b border-gray-100 transition-colors ${hasValue ? "bg-blue-50/30" : "hover:bg-gray-50"}`}
+                      >
+                        <td className="px-4 py-1 text-center text-xs font-medium text-gray-400 border-r border-gray-100">
+                          {i + 1}
+                        </td>
+                        <td className="px-2 py-1 border-r border-gray-100">
+                          <input
+                            type="number"
+                            className="w-full px-3 py-2 bg-transparent border-0 text-gray-900 text-sm text-center focus:outline-none focus:bg-blue-100 rounded transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            value={row.tSurf || ""}
+                            onChange={(e) => updateRow(i, "tSurf", e.target.value)}
+                            onKeyDown={(e) => handleCellKeyDown(e, i, "tSurf")}
+                            data-row={i}
+                            data-field="tSurf"
+                            placeholder="—"
+                          />
+                        </td>
+                        <td className="px-2 py-1">
+                          <input
+                            type="number"
+                            className="w-full px-3 py-2 bg-transparent border-0 text-gray-900 text-sm text-center focus:outline-none focus:bg-blue-100 rounded transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            value={row.qFlux || ""}
+                            onChange={(e) => updateRow(i, "qFlux", e.target.value)}
+                            onKeyDown={(e) => handleCellKeyDown(e, i, "qFlux")}
+                            data-row={i}
+                            data-field="qFlux"
+                            placeholder="—"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer with count and actions */}
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+              <span className="text-sm text-gray-500">
+                <span className="font-semibold text-gray-900">{filledRows}</span> data points entered
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => resetForm(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-gray-500 hover:text-gray-700 text-sm font-medium transition-colors"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Clear
+                </button>
+                <button
+                  onClick={() => resetForm(false)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-blue-600 hover:text-blue-700 text-sm font-medium transition-colors"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Reset
+                </button>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Preview button */}
           <button
             onClick={handleCheck}
-            className="px-4 py-2 rounded border border-cyan-500 bg-cyan-500/10 text-cyan-700 font-mono text-sm hover:bg-cyan-500/20 transition"
+            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-white border-2 border-blue-500 text-blue-600 font-semibold rounded-xl hover:bg-blue-50 transition-colors"
           >
-            Check
+            <Check className="h-5 w-5" />
+            Preview Data
           </button>
-          <button
-            onClick={handleSave}
-            disabled={!checked || !name.trim()}
-            className={`px-4 py-2 rounded border font-mono text-sm transition ${
-              checked && name.trim()
-                ? "border-green-500 bg-green-500/10 text-green-700 hover:bg-green-500/20"
-                : "border-gray-300 bg-gray-100 text-gray-400 cursor-not-allowed"
-            }`}
-          >
-            Save
-          </button>
-          <button
-            onClick={resetForm}
-            className="px-4 py-2 rounded border border-gray-300 bg-gray-50 text-gray-500 font-mono text-sm hover:border-gray-400 transition"
-          >
-            Clear
-          </button>
+
+          {/* Chart preview & Save section */}
+          <AnimatePresence>
+            {chartData && (
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                className="space-y-4"
+              >
+                {/* Chart */}
+                <div className="p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
+                  <h3 className="text-sm font-bold text-gray-900 mb-4">
+                    Boiling Curve Preview
+                    <span className="ml-2 text-xs font-normal text-gray-500">({chartData.length} points)</span>
+                  </h3>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <LineChart data={chartData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis
+                        dataKey="tSurf"
+                        label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#6b7280", fontSize: 12 }}
+                        tick={{ fill: "#6b7280", fontSize: 11 }}
+                        stroke="#d1d5db"
+                      />
+                      <YAxis
+                        label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#6b7280", fontSize: 12 }}
+                        tick={{ fill: "#6b7280", fontSize: 11 }}
+                        stroke="#d1d5db"
+                      />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, fontSize: 12, boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
+                        labelFormatter={(v) => `T_surf: ${v}°C`}
+                        formatter={(v) => [`${v} kW/m²`, "q''"]}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="qFlux"
+                        stroke={source === "experiment" ? "#3b82f6" : "#ec4899"}
+                        strokeWidth={3}
+                        dot={{ fill: source === "experiment" ? "#3b82f6" : "#ec4899", r: 5, strokeWidth: 2, stroke: "#fff" }}
+                        activeDot={{ r: 8, strokeWidth: 2, stroke: "#fff" }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Dataset name & Save - shown after preview */}
+                <div className="p-5 bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl border border-green-200">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-green-700 mb-3">
+                    <Sparkles className="h-4 w-4" />
+                    Dataset Name
+                  </label>
+                  <div className="flex gap-3">
+                    <div className="flex-1 relative">
+                      <input
+                        type="text"
+                        className="w-full px-4 py-3 bg-white border-2 border-green-200 text-gray-900 rounded-xl text-base font-medium focus:outline-none focus:border-green-500 focus:ring-2 focus:ring-green-500/20 transition-all"
+                        placeholder="Enter dataset name..."
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                      />
+                      {suggestedName && !name && (
+                        <button
+                          onClick={() => setName(suggestedName)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 bg-green-100 hover:bg-green-200 text-green-700 text-xs font-medium rounded-lg transition-colors"
+                        >
+                          Use: {suggestedName}
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      onClick={handleSave}
+                      disabled={!name.trim()}
+                      className={`flex items-center gap-2 px-6 py-3 font-semibold rounded-xl transition-all ${
+                        name.trim()
+                          ? "bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg hover:shadow-xl hover:scale-[1.02]"
+                          : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                      }`}
+                    >
+                      <Sparkles className="h-5 w-5" />
+                      Save
+                    </button>
+                  </div>
+                  {suggestedName && (
+                    <p className="text-xs text-green-600 mt-2">
+                      Suggested: <span className="font-mono font-medium">{suggestedName}</span>
+                    </p>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
-
-      {/* Chart preview */}
-      {chartData && (
-        <div className="p-5 rounded-xl border bg-white border-gray-200 shadow-sm">
-          <h3 className="text-sm font-bold text-cyan-600 font-mono tracking-wider mb-4">
-            {">"} BOILING CURVE PREVIEW
-          </h3>
-          <ResponsiveContainer width="100%" height={350}>
-            <LineChart data={chartData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="tSurf"
-                label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#6b7280", fontSize: 12 }}
-                tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" />
-              <YAxis
-                label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#6b7280", fontSize: 12 }}
-                tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" />
-              <Tooltip
-                contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontFamily: "monospace", fontSize: 12 }}
-                labelFormatter={(v) => `T_surf: ${v}°C`}
-                formatter={(v) => [`${v} kW/m²`, "q''"]}
-              />
-              <Line type="monotone" dataKey="qFlux"
-                stroke={source === "experiment" ? "#22d3ee" : "#f472b6"} strokeWidth={2}
-                dot={{ fill: source === "experiment" ? "#22d3ee" : "#f472b6", r: 4 }}
-                activeDot={{ r: 6 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
     </div>
   );
 }
