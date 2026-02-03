@@ -15,21 +15,26 @@ export interface ExperimentMeta {
   bulkFluidTemp?: string;
   orientation?: string;
   flowVelocity?: string;
+  trialNumber?: string;
   // Heater
   heaterMaterial?: string;
   heaterSize?: string;
   heaterGeometry?: string;
   // Surface — base reference
   baseSurface?: string;
-  // Surface — modification (LIG etc.)
-  surfaceModification?: string;
-  patternAreaRatio?: string;
-  patternSpacing?: string;
-  patternThickness?: string;
-  structureHeight?: string;
   contactAngle?: string;
   ra?: string;
   rz?: string;
+  // Surface — modification (LIG etc.)
+  surfaceModification?: string;
+  surfaceFraction?: string;
+  wettability?: string;
+  structureWidth?: string;
+  structureSpacing?: string;
+  structureHeight?: string;
+  patternAreaRatio?: string;
+  patternSpacing?: string;
+  patternThickness?: string;
   porosity?: string;
   coatingMaterial?: string;
   coatingThickness?: string;
