@@ -338,7 +338,7 @@ export default function DataInputTab({ onSaved }: Props) {
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!checked || !chartData || !name.trim()) return;
     const ds: BoilingDataset = {
       id: crypto.randomUUID(),
@@ -348,12 +348,17 @@ export default function DataInputTab({ onSaved }: Props) {
       createdAt: new Date().toISOString(),
       ...(source === "experiment" ? { experiment: expMeta } : { literature }),
     };
-    saveDataset(ds);
-    setName("");
-    setExpMeta({});
-    setLiterature({});
-    resetForm();
-    onSaved();
+    try {
+      await saveDataset(ds);
+      setName("");
+      setExpMeta({});
+      setLiterature({});
+      resetForm();
+      onSaved();
+    } catch (error) {
+      console.error("Failed to save dataset:", error);
+      alert("Failed to save dataset. Please try again.");
+    }
   };
 
   const updateExp = (key: keyof ExperimentMeta, val: string) => {

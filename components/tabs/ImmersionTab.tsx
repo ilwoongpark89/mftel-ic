@@ -216,7 +216,11 @@ export default function ImmersionTab({ spec }: Props) {
   const [selectedOrientation, setSelectedOrientation] = useState<string>("0");
 
   useEffect(() => {
-    setDatasets(loadDatasets());
+    const fetchData = async () => {
+      const data = await loadDatasets();
+      setDatasets(data);
+    };
+    fetchData();
   }, []);
 
   // Get current fluid's T_sat

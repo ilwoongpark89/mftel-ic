@@ -1,3 +1,5 @@
+import { supabase } from './supabase';
+
 export interface BoilingDataPoint {
   tSurf: number;
   qFlux: number;
@@ -95,9 +97,6 @@ export interface BoilingDataset {
   literature?: LiteratureMeta;
 }
 
-const STORAGE_KEY = "cooldecide-boiling-datasets";
-const BACKUP_KEY = "cooldecide-boiling-backups";
-
 export interface DataBackup {
   id: string;
   name: string;
@@ -106,33 +105,95 @@ export interface DataBackup {
   datasetCount: number;
 }
 
-export function loadDatasets(): BoilingDataset[] {
-  if (typeof window === "undefined") return [];
+// ============ Supabase Functions ============
+
+export async function loadDatasets(): Promise<BoilingDataset[]> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
+    const { data, error } = await supabase
+      .from('boiling_datasets')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error loading datasets:', error);
+      return [];
+    }
+
+    return (data || []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      source: row.source as DataSource,
+      data: row.data as BoilingDataPoint[],
+      createdAt: row.created_at,
+      experiment: row.experiment_meta as ExperimentMeta | undefined,
+      literature: row.literature_meta as LiteratureMeta | undefined,
+    }));
+  } catch (err) {
+    console.error('Error loading datasets:', err);
     return [];
   }
 }
 
-export function saveDataset(ds: BoilingDataset): void {
-  const all = loadDatasets();
-  all.push(ds);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+export async function saveDataset(ds: BoilingDataset): Promise<void> {
+  try {
+    const { error } = await supabase.from('boiling_datasets').insert({
+      id: ds.id,
+      name: ds.name,
+      source: ds.source,
+      data: ds.data,
+      created_at: ds.createdAt,
+      experiment_meta: ds.experiment || null,
+      literature_meta: ds.literature || null,
+    });
+
+    if (error) {
+      console.error('Error saving dataset:', error);
+      throw error;
+    }
+  } catch (err) {
+    console.error('Error saving dataset:', err);
+    throw err;
+  }
 }
 
-export function deleteDataset(id: string): void {
-  const all = loadDatasets().filter((d) => d.id !== id);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+export async function deleteDataset(id: string): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('boiling_datasets')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error deleting dataset:', error);
+      throw error;
+    }
+  } catch (err) {
+    console.error('Error deleting dataset:', err);
+    throw err;
+  }
 }
 
-export function updateDataset(id: string, updates: Partial<BoilingDataset>): void {
-  const all = loadDatasets();
-  const idx = all.findIndex((d) => d.id === id);
-  if (idx >= 0) {
-    all[idx] = { ...all[idx], ...updates };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+export async function updateDataset(id: string, updates: Partial<BoilingDataset>): Promise<void> {
+  try {
+    const dbUpdates: Record<string, unknown> = {};
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.source !== undefined) dbUpdates.source = updates.source;
+    if (updates.data !== undefined) dbUpdates.data = updates.data;
+    if (updates.experiment !== undefined) dbUpdates.experiment_meta = updates.experiment;
+    if (updates.literature !== undefined) dbUpdates.literature_meta = updates.literature;
+
+    const { error } = await supabase
+      .from('boiling_datasets')
+      .update(dbUpdates)
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error updating dataset:', error);
+      throw error;
+    }
+  } catch (err) {
+    console.error('Error updating dataset:', err);
+    throw err;
   }
 }
 
@@ -149,22 +210,38 @@ export function parseCSV(text: string): BoilingDataPoint[] {
   return points;
 }
 
-// Backup functions
-export function loadBackups(): DataBackup[] {
-  if (typeof window === "undefined") return [];
+// ============ Backup Functions (Supabase) ============
+
+export async function loadBackups(): Promise<DataBackup[]> {
   try {
-    const raw = localStorage.getItem(BACKUP_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
+    const { data, error } = await supabase
+      .from('boiling_backups')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error loading backups:', error);
+      return [];
+    }
+
+    return (data || []).map((row) => ({
+      id: row.id,
+      name: row.name,
+      createdAt: row.created_at,
+      datasets: row.datasets as BoilingDataset[],
+      datasetCount: row.dataset_count,
+    }));
+  } catch (err) {
+    console.error('Error loading backups:', err);
     return [];
   }
 }
 
-export function createBackup(name?: string): DataBackup {
-  const datasets = loadDatasets();
+export async function createBackup(name?: string): Promise<DataBackup> {
+  const datasets = await loadDatasets();
   const now = new Date();
-  const dateStr = now.toISOString().split("T")[0]; // YYYY-MM-DD
-  const timeStr = now.toTimeString().split(" ")[0].replace(/:/g, "-"); // HH-MM-SS
+  const dateStr = now.toISOString().split("T")[0];
+  const timeStr = now.toTimeString().split(" ")[0].replace(/:/g, "-");
 
   const backup: DataBackup = {
     id: `backup-${Date.now()}`,
@@ -174,25 +251,69 @@ export function createBackup(name?: string): DataBackup {
     datasetCount: datasets.length,
   };
 
-  const backups = loadBackups();
-  backups.unshift(backup); // Add to beginning (newest first)
-  localStorage.setItem(BACKUP_KEY, JSON.stringify(backups));
+  const { error } = await supabase.from('boiling_backups').insert({
+    id: backup.id,
+    name: backup.name,
+    created_at: backup.createdAt,
+    datasets: backup.datasets,
+    dataset_count: backup.datasetCount,
+  });
+
+  if (error) {
+    console.error('Error creating backup:', error);
+    throw error;
+  }
 
   return backup;
 }
 
-export function restoreBackup(backupId: string): boolean {
-  const backups = loadBackups();
-  const backup = backups.find((b) => b.id === backupId);
-  if (!backup) return false;
+export async function restoreBackup(backupId: string): Promise<boolean> {
+  try {
+    const { data: backupData, error: fetchError } = await supabase
+      .from('boiling_backups')
+      .select('*')
+      .eq('id', backupId)
+      .single();
 
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(backup.datasets));
-  return true;
+    if (fetchError || !backupData) {
+      console.error('Error fetching backup:', fetchError);
+      return false;
+    }
+
+    // Delete all existing datasets
+    const { error: deleteError } = await supabase
+      .from('boiling_datasets')
+      .delete()
+      .neq('id', '');
+
+    if (deleteError) {
+      console.error('Error deleting existing datasets:', deleteError);
+      return false;
+    }
+
+    // Insert backup datasets
+    const datasets = backupData.datasets as BoilingDataset[];
+    for (const ds of datasets) {
+      await saveDataset(ds);
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error restoring backup:', err);
+    return false;
+  }
 }
 
-export function deleteBackup(backupId: string): void {
-  const backups = loadBackups().filter((b) => b.id !== backupId);
-  localStorage.setItem(BACKUP_KEY, JSON.stringify(backups));
+export async function deleteBackup(backupId: string): Promise<void> {
+  const { error } = await supabase
+    .from('boiling_backups')
+    .delete()
+    .eq('id', backupId);
+
+  if (error) {
+    console.error('Error deleting backup:', error);
+    throw error;
+  }
 }
 
 export function downloadBackup(backup: DataBackup): void {
@@ -209,7 +330,7 @@ export function downloadBackup(backup: DataBackup): void {
 export function importBackup(file: File): Promise<DataBackup | null> {
   return new Promise((resolve) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const content = e.target?.result as string;
         const backup = JSON.parse(content) as DataBackup;
@@ -218,10 +339,20 @@ export function importBackup(file: File): Promise<DataBackup | null> {
           backup.id = `backup-${Date.now()}`;
           backup.name = `Imported: ${backup.name}`;
 
-          const backups = loadBackups();
-          backups.unshift(backup);
-          localStorage.setItem(BACKUP_KEY, JSON.stringify(backups));
-          resolve(backup);
+          const { error } = await supabase.from('boiling_backups').insert({
+            id: backup.id,
+            name: backup.name,
+            created_at: backup.createdAt,
+            datasets: backup.datasets,
+            dataset_count: backup.datasetCount,
+          });
+
+          if (error) {
+            console.error('Error importing backup:', error);
+            resolve(null);
+          } else {
+            resolve(backup);
+          }
         } else {
           resolve(null);
         }

@@ -31,22 +31,34 @@ export default function DataManageTab() {
   const [backupStatus, setBackupStatus] = useState<"" | "created" | "restored" | "error">("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    setDatasets(loadDatasets());
-    setBackups(loadBackups());
+    const fetchData = async () => {
+      setLoading(true);
+      const [ds, bk] = await Promise.all([loadDatasets(), loadBackups()]);
+      setDatasets(ds);
+      setBackups(bk);
+      setLoading(false);
+    };
+    fetchData();
   }, []);
 
-  const refresh = () => {
-    setDatasets(loadDatasets());
-    setBackups(loadBackups());
+  const refresh = async () => {
+    setLoading(true);
+    const [ds, bk] = await Promise.all([loadDatasets(), loadBackups()]);
+    setDatasets(ds);
+    setBackups(bk);
+    setLoading(false);
   };
 
   // Backup functions
-  const handleCreateBackup = () => {
+  const handleCreateBackup = async () => {
     try {
-      createBackup(backupName || undefined);
+      await createBackup(backupName || undefined);
       setBackupName("");
-      setBackups(loadBackups());
+      const bk = await loadBackups();
+      setBackups(bk);
       setBackupStatus("created");
       setTimeout(() => setBackupStatus(""), 2000);
     } catch {
@@ -54,11 +66,11 @@ export default function DataManageTab() {
     }
   };
 
-  const handleRestoreBackup = (backupId: string) => {
+  const handleRestoreBackup = async (backupId: string) => {
     if (confirm("현재 데이터를 이 백업으로 복원하시겠습니까? 현재 데이터는 덮어씌워집니다.")) {
-      const success = restoreBackup(backupId);
+      const success = await restoreBackup(backupId);
       if (success) {
-        refresh();
+        await refresh();
         setBackupStatus("restored");
         setTimeout(() => setBackupStatus(""), 2000);
       } else {
@@ -67,10 +79,11 @@ export default function DataManageTab() {
     }
   };
 
-  const handleDeleteBackup = (backupId: string) => {
+  const handleDeleteBackup = async (backupId: string) => {
     if (confirm("이 백업을 삭제하시겠습니까?")) {
-      deleteBackup(backupId);
-      setBackups(loadBackups());
+      await deleteBackup(backupId);
+      const bk = await loadBackups();
+      setBackups(bk);
     }
   };
 
@@ -84,7 +97,8 @@ export default function DataManageTab() {
 
     const result = await importBackup(file);
     if (result) {
-      setBackups(loadBackups());
+      const bk = await loadBackups();
+      setBackups(bk);
       setBackupStatus("created");
       setTimeout(() => setBackupStatus(""), 2000);
     } else {
@@ -97,9 +111,9 @@ export default function DataManageTab() {
     }
   };
 
-  const handleDelete = (id: string) => {
-    deleteDataset(id);
-    refresh();
+  const handleDelete = async (id: string) => {
+    await deleteDataset(id);
+    await refresh();
     setSelected((s) => { const n = new Set(s); n.delete(id); return n; });
     if (expandedId === id) setExpandedId(null);
     if (editingId === id) cancelEdit();
@@ -142,7 +156,7 @@ export default function DataManageTab() {
   };
 
   // Save edited dataset
-  const saveEdit = (ds: BoilingDataset) => {
+  const saveEdit = async (ds: BoilingDataset) => {
     try {
       const updates: Partial<BoilingDataset> = {
         name: editName,
@@ -153,8 +167,8 @@ export default function DataManageTab() {
       } else {
         updates.literature = editMeta as LiteratureMeta;
       }
-      updateDataset(ds.id, updates);
-      refresh();
+      await updateDataset(ds.id, updates);
+      await refresh();
       setSaveStatus("saved");
       setTimeout(() => {
         cancelEdit();
@@ -300,6 +314,17 @@ export default function DataManageTab() {
   const renderMeta = (ds: BoilingDataset) => {
     return getMetaFields(ds).filter((m) => m.value);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cyan-500 mx-auto mb-4"></div>
+          <p className="text-gray-500 font-mono text-sm">Loading datasets...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
