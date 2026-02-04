@@ -1260,45 +1260,40 @@ export default function IntroductionPage() {
               <SectionCard className="border-teal-500/20">
                 <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
                   <Info className="h-5 w-5 text-teal-500" />
-                  작동 원리
+                  작동 원리: 2상 비등 열전달
                 </h3>
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div>
-                    <p className="text-muted-foreground mb-4">
-                      전자 부품을 <strong>유전성(Dielectric) 냉매</strong>에
-                      완전히 담그는 방식입니다. 칩 표면에서 냉매가 비등(Boiling)하면서
-                      증발잠열을 통해 열을 흡수합니다.
-                    </p>
-                    <div className="space-y-3">
-                      <div className="p-3 rounded-lg bg-muted/30">
-                        <h4 className="font-medium text-sm mb-1">1상 침수 (Single-Phase)</h4>
-                        <p className="text-xs text-muted-foreground">
-                          비등 없이 액체 상태로만 열 흡수. 단순하지만 효율이 낮음.
-                        </p>
-                      </div>
-                      <div className="p-3 rounded-lg bg-teal-500/10 border border-teal-500/20">
-                        <h4 className="font-medium text-sm mb-1 text-teal-500">2상 침수 (Two-Phase)</h4>
-                        <p className="text-xs text-muted-foreground">
-                          비등 열전달 활용. 증발잠열로 초고효율 냉각 달성.
-                        </p>
-                      </div>
-                    </div>
+
+                {/* 설명 */}
+                <p className="text-muted-foreground mb-4">
+                  전자 부품을 <strong>유전성(Dielectric) 냉매</strong>에
+                  완전히 담그는 방식입니다. 칩 표면에서 냉매가 비등(Boiling)하면서
+                  <strong className="text-teal-500"> 증발잠열(Latent Heat)</strong>을 통해 열을 흡수합니다.
+                  비등 열전달은 강제 대류 대비 <strong>10~100배</strong> 높은 열전달 계수를 제공합니다.
+                </p>
+
+                {/* 열전달 공식 */}
+                <FormulaBox
+                  formula="Q = h \cdot A \cdot \Delta T"
+                  description="비등 시 열전달계수(h)가 급격히 증가"
+                  variables={[
+                    { symbol: "h_{boiling}", meaning: "비등 열전달계수", unit: "10,000~50,000 W/m²K" },
+                    { symbol: "h_{convection}", meaning: "강제대류 열전달계수", unit: "100~5,000 W/m²K" },
+                  ]}
+                />
+
+                {/* 성능 특성 */}
+                <div className="grid md:grid-cols-3 gap-4 mt-4">
+                  <div className="p-4 rounded-lg bg-teal-500/10 border border-teal-500/20 text-center">
+                    <div className="text-2xl font-bold text-teal-500">10~100x</div>
+                    <div className="text-xs text-muted-foreground">강제대류 대비 열전달</div>
                   </div>
-                  <div>
-                    <h4 className="font-medium mb-2">비등 열전달의 장점</h4>
-                    <FormulaBox
-                      formula="Q = h \cdot A \cdot \Delta T"
-                      description="비등 시 h가 급격히 증가"
-                      variables={[
-                        { symbol: "h_{boiling}", meaning: "비등 열전달계수", unit: "10,000~50,000 W/m²K" },
-                        { symbol: "h_{convection}", meaning: "대류 열전달계수", unit: "100~5,000 W/m²K" },
-                      ]}
-                    />
-                    <p className="text-sm text-muted-foreground">
-                      비등 열전달은 강제 대류 대비 <strong>10~100배</strong> 높은
-                      열전달 계수를 제공합니다. 이는 증발 시 잠열(Latent Heat)을
-                      활용하기 때문입니다.
-                    </p>
+                  <div className="p-4 rounded-lg bg-teal-500/10 border border-teal-500/20 text-center">
+                    <div className="text-2xl font-bold text-teal-500">~250 W/cm²</div>
+                    <div className="text-xs text-muted-foreground">최대 Heat Flux</div>
+                  </div>
+                  <div className="p-4 rounded-lg bg-teal-500/10 border border-teal-500/20 text-center">
+                    <div className="text-2xl font-bold text-teal-500">PUE 1.02</div>
+                    <div className="text-xs text-muted-foreground">Free Cooling 시</div>
                   </div>
                 </div>
               </SectionCard>
