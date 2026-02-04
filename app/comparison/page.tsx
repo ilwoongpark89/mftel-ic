@@ -428,6 +428,14 @@ const TOOLTIP_STYLE = {
   fontSize: 12,
 };
 
+// Category colors for consistent grouping
+const CATEGORY_COLORS: Record<string, string> = {
+  "air": "#f97316",       // Orange for air cooling
+  "cold-plate": "#3b82f6", // Blue for cold plate
+  "immersion": "#14b8a6",  // Teal for immersion
+  "passive": "#a855f7",    // Purple for passive
+};
+
 // Memoized chart component to prevent infinite re-renders
 interface ChartData {
   name: string;
@@ -491,6 +499,92 @@ const CoolingPowerChart = memo(function CoolingPowerChart({ data }: { data: Char
         <Bar dataKey="coolingPower" radius={[0, 4, 4, 0]}>
           {data.map((entry, index) => (
             <Cell key={`cell-${index}`} fill={entry.color} fillOpacity={0.7} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+});
+
+// Heat Transfer Coefficient Chart
+interface HTCChartData {
+  name: string;
+  htc: number;
+  color: string;
+  category: string;
+}
+
+const HTCChart = memo(function HTCChart({ data }: { data: HTCChartData[] }) {
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <BarChart
+        data={data}
+        layout="vertical"
+        margin={{ left: 20, right: 20 }}
+      >
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+        <XAxis
+          type="number"
+          scale="log"
+          domain={[10, 100000]}
+          tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+          tickFormatter={(v) => v >= 1000 ? `${v/1000}k` : v}
+        />
+        <YAxis
+          type="category"
+          dataKey="name"
+          width={110}
+          tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+        />
+        <Tooltip
+          contentStyle={TOOLTIP_STYLE}
+          formatter={(value: number) => [`${value.toLocaleString()} W/m²K`, "열전달 계수"]}
+        />
+        <Bar dataKey="htc" radius={[0, 4, 4, 0]}>
+          {data.map((entry, index) => (
+            <Cell key={`cell-${index}`} fill={entry.color} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+});
+
+// Max Heat Flux Chart
+interface HeatFluxChartData {
+  name: string;
+  maxHeatFlux: number;
+  color: string;
+  category: string;
+}
+
+const MaxHeatFluxChart = memo(function MaxHeatFluxChart({ data }: { data: HeatFluxChartData[] }) {
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <BarChart
+        data={data}
+        layout="vertical"
+        margin={{ left: 20, right: 20 }}
+      >
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+        <XAxis
+          type="number"
+          domain={[0, 250]}
+          tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+        />
+        <YAxis
+          type="category"
+          dataKey="name"
+          width={110}
+          tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+        />
+        <Tooltip
+          contentStyle={TOOLTIP_STYLE}
+          formatter={(value: number) => [`${value} W/cm²`, "최대 Heat Flux"]}
+        />
+        <Bar dataKey="maxHeatFlux" radius={[0, 4, 4, 0]}>
+          {data.map((entry, index) => (
+            <Cell key={`cell-${index}`} fill={entry.color} fillOpacity={0.8} />
           ))}
         </Bar>
       </BarChart>
@@ -565,16 +659,36 @@ export default function ComparisonPage() {
       pue: Math.min(r.pue, 2.5), // Cap for chart display
       coolingPower: r.coolingPower,
       safe: r.isSafe,
-      // Use category color, with special case for two-phase cold plate
-      color: r.method.category === "immersion" ? "#14b8a6" :
-             r.method.id === "cold-plate-2p" ? "#a855f7" : // Two-phase cold plate = purple
-             r.method.category === "cold-plate" ? "#3b82f6" : // Single-phase cold plate = blue
-             r.method.category === "passive" ? "#7c3aed" : "#f97316", // Passive = violet
+      category: r.method.category,
+      // Use consistent category colors
+      color: CATEGORY_COLORS[r.method.category] || "#6b7280",
+    }));
+  }, [sortedResults]);
+
+  // HTC chart data
+  const htcChartData = useMemo(() => {
+    return sortedResults.map((r) => ({
+      name: r.method.shortName,
+      htc: r.method.heatTransferCoeff,
+      category: r.method.category,
+      color: CATEGORY_COLORS[r.method.category] || "#6b7280",
+    }));
+  }, [sortedResults]);
+
+  // Max Heat Flux chart data
+  const maxHeatFluxChartData = useMemo(() => {
+    return sortedResults.map((r) => ({
+      name: r.method.shortName,
+      maxHeatFlux: r.method.maxHeatFlux,
+      category: r.method.category,
+      color: CATEGORY_COLORS[r.method.category] || "#6b7280",
     }));
   }, [sortedResults]);
 
   // Deferred chart data to prevent recharts Redux infinite loop during rapid updates
   const deferredChartData = useDeferredValue(pueChartData);
+  const deferredHTCData = useDeferredValue(htcChartData);
+  const deferredHeatFluxData = useDeferredValue(maxHeatFluxChartData);
 
   return (
     <AppShell showFooter={false}>
@@ -1049,6 +1163,27 @@ export default function ComparisonPage() {
             <h2 className="text-xl font-bold">시각적 비교</h2>
           </div>
 
+          {/* Category Legend */}
+          <div className="flex flex-wrap gap-4 mb-6 p-4 rounded-lg bg-muted/30">
+            <span className="text-sm font-medium">카테고리:</span>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded" style={{ backgroundColor: CATEGORY_COLORS["air"] }} />
+              <span className="text-sm">공랭 (Air)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded" style={{ backgroundColor: CATEGORY_COLORS["cold-plate"] }} />
+              <span className="text-sm">수냉 (Cold Plate)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded" style={{ backgroundColor: CATEGORY_COLORS["immersion"] }} />
+              <span className="text-sm">침수냉각 (Immersion)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded" style={{ backgroundColor: CATEGORY_COLORS["passive"] }} />
+              <span className="text-sm">패시브 (Passive)</span>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* PUE Bar Chart */}
             <motion.div variants={fadeInUp}>
@@ -1068,6 +1203,30 @@ export default function ComparisonPage() {
                 <CoolingPowerChart data={deferredChartData} />
                 <div className="mt-4 text-xs text-muted-foreground">
                   TDP {tdp}W를 냉각하는 데 필요한 추가 전력량입니다.
+                </div>
+              </InfoCard>
+            </motion.div>
+
+            {/* Heat Transfer Coefficient Chart */}
+            <motion.div variants={fadeInUp}>
+              <InfoCard title="열전달 계수 (h) 비교 - 로그 스케일">
+                <HTCChart data={deferredHTCData} />
+                <div className="mt-4 text-xs text-muted-foreground">
+                  <strong>열전달 계수(h)</strong>가 높을수록 같은 온도차에서 더 많은 열을 전달.
+                  <br />
+                  비등 열전달(침수/이상수냉)은 강제대류 대비 10~100배 높음.
+                </div>
+              </InfoCard>
+            </motion.div>
+
+            {/* Max Heat Flux Chart */}
+            <motion.div variants={fadeInUp}>
+              <InfoCard title="최대 Heat Flux 용량 (W/cm²)">
+                <MaxHeatFluxChart data={deferredHeatFluxData} />
+                <div className="mt-4 text-xs text-muted-foreground">
+                  각 냉각 방식이 처리할 수 있는 <strong>최대 열유속</strong>.
+                  <br />
+                  현재 칩: <strong className={heatFlux > 100 ? "text-red-500" : heatFlux > 30 ? "text-amber-500" : "text-emerald-500"}>{heatFlux.toFixed(1)} W/cm²</strong>
                 </div>
               </InfoCard>
             </motion.div>
