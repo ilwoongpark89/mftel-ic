@@ -17,7 +17,7 @@ import {
   Lightbulb,
   AlertTriangle,
   Leaf,
-  Pipette,
+  Rows3,
   Container,
 } from "lucide-react";
 import {
@@ -46,7 +46,7 @@ interface CoolingMethod {
   name: string;
   shortName: string;
   category: "air" | "cold-plate" | "immersion";
-  icon: "wind" | "fan" | "pipette" | "container";
+  icon: "wind" | "fan" | "rows3" | "container";
   color: string;
   bgColor: string;
   borderColor: string;
@@ -91,27 +91,26 @@ const COOLING_METHODS: CoolingMethod[] = [
   },
   {
     id: "forced-air",
-    name: "Forced Air Cooling (Fans + Heatsink)",
+    name: "Forced Air Cooling (CRAC + Chiller)",
     shortName: "Forced Air",
     category: "air",
     icon: "fan",
     color: "text-orange-500",
     bgColor: "bg-orange-500/10",
     borderColor: "border-orange-500/30",
-    description: "Active cooling using fans to blow air over heatsinks - the most common cooling method",
+    description: "CRAC/CRAH + 칠러로 전체 공간을 냉방하는 전통적 방식",
     heatTransferCoeff: 150,
     thermalResistance: 0.15,
-    basePower: 20,
-    powerPerWattTDP: 0.45, // ~45% overhead → PUE ~1.45
-    chillerRequired: false,
-    chillerCOP: 1,
+    basePower: 30,
+    powerPerWattTDP: 0.50, // ~50% overhead → PUE ~1.50-1.55
+    chillerRequired: true,
+    chillerCOP: 3,
     maxHeatFlux: 30,
     notes: [
-      "Most widely used and mature technology",
-      "Relatively low cost",
-      "Generates noise from fans",
-      "Limited by air's low thermal conductivity",
-      "Struggles with high-density computing",
+      "전통적 데이터센터 표준 방식",
+      "전체 공간 냉방 필요 - 비효율적",
+      "PUE 1.50~1.55 (평균)",
+      "고밀도 환경에서 한계",
     ],
   },
   {
@@ -119,24 +118,23 @@ const COOLING_METHODS: CoolingMethod[] = [
     name: "단상 수냉 Cold Plate (20°C)",
     shortName: "단상 20°C",
     category: "cold-plate",
-    icon: "pipette",
+    icon: "rows3",
     color: "text-blue-500",
     bgColor: "bg-blue-500/10",
     borderColor: "border-blue-500/30",
     description: "단상(물) 수냉 - 칠러로 20°C 냉각수 공급. 현열 전달만 이용.",
     heatTransferCoeff: 5000,
     thermalResistance: 0.05,
-    basePower: 50, // Pump power
-    powerPerWattTDP: 0.25, // Chiller power ~25% of TDP at COP 4
+    basePower: 30, // Pump power
+    powerPerWattTDP: 0.28, // Chiller (COP 4) + pump → PUE ~1.28
     chillerRequired: true,
     chillerCOP: 4,
     maxHeatFlux: 100,
     notes: [
-      "물의 높은 비열 활용 (4.18 kJ/kg·K)",
-      "칠러 필요 - 에너지 소비 높음",
-      "하이퍼스케일러 현재 주력 기술",
-      "20°C 냉각수로 넓은 열적 여유",
-      "시스템 단순 (펌프 + 열교환기)",
+      "직접 냉각으로 공랭 대비 효율적",
+      "칠러 필요 (COP ~4)",
+      "PUE 1.25~1.30",
+      "열적 여유 큼 (T_j - T_c = 65°C)",
     ],
   },
   {
@@ -144,24 +142,23 @@ const COOLING_METHODS: CoolingMethod[] = [
     name: "단상 수냉 Cold Plate (45°C)",
     shortName: "단상 45°C",
     category: "cold-plate",
-    icon: "pipette",
+    icon: "rows3",
     color: "text-cyan-500",
     bgColor: "bg-cyan-500/10",
     borderColor: "border-cyan-500/30",
     description: "단상(물) 수냉 - NVIDIA Blackwell 권장. Free Cooling 가능.",
     heatTransferCoeff: 4500,
     thermalResistance: 0.055,
-    basePower: 45,
-    powerPerWattTDP: 0.08, // Much lower - often free cooling possible
-    chillerRequired: false, // Can use dry cooler
-    chillerCOP: 10, // Effectively very high with free cooling
+    basePower: 25,
+    powerPerWattTDP: 0.08, // Free cooling: dry cooler + pump → PUE ~1.08
+    chillerRequired: false,
+    chillerCOP: 12,
     maxHeatFlux: 80,
     notes: [
-      "NVIDIA Blackwell 권장 온도 (45°C)",
-      "Free Cooling 가능 - 에너지 90% 절감",
-      "열적 여유 감소 - 설계 주의 필요",
-      "대부분 기후에서 칠러 불필요",
-      "현재 가장 효율적인 단상 수냉",
+      "NVIDIA Blackwell 권장 (45°C)",
+      "Free Cooling - 칠러 불필요",
+      "PUE 1.06~1.10",
+      "열적 여유 작음 (설계 주의)",
     ],
   },
   {
@@ -169,24 +166,23 @@ const COOLING_METHODS: CoolingMethod[] = [
     name: "이상 수냉 Cold Plate (Pumped 2-Phase)",
     shortName: "이상 수냉",
     category: "cold-plate",
-    icon: "pipette",
+    icon: "rows3",
     color: "text-purple-500",
     bgColor: "bg-purple-500/10",
     borderColor: "border-purple-500/30",
     description: "이상(냉매 비등) 수냉 - Cold Plate 내부에서 R134a 등 냉매가 비등하며 잠열 흡수.",
-    heatTransferCoeff: 20000, // Much higher due to boiling
+    heatTransferCoeff: 20000,
     thermalResistance: 0.025,
-    basePower: 60, // Pump + condenser fan
-    powerPerWattTDP: 0.05, // Lower due to latent heat efficiency
-    chillerRequired: false, // Uses condenser, not chiller
+    basePower: 20,
+    powerPerWattTDP: 0.06, // Condenser + pump → PUE ~1.06
+    chillerRequired: false,
     chillerCOP: 15,
-    maxHeatFlux: 200, // CHF limit
+    maxHeatFlux: 200,
     notes: [
-      "비등 열전달 - 단상 대비 5~10배 효율",
-      "CHF 한계: ~200 W/cm² (설계 마진 필요)",
-      "냉매: R134a, R1234ze, CO₂ 등",
-      "컨덴서 필요 (칠러 불필요)",
-      "차세대 초고밀도 냉각 기술",
+      "비등 열전달 - 고효율",
+      "CHF 한계: ~200 W/cm²",
+      "PUE 1.05~1.08",
+      "R&D 단계 기술",
     ],
   },
   {
@@ -198,20 +194,19 @@ const COOLING_METHODS: CoolingMethod[] = [
     color: "text-teal-500",
     bgColor: "bg-teal-500/10",
     borderColor: "border-teal-500/30",
-    description: "2상 침수냉각 - 컨덴서 냉각수 온도 20°C (칠러 필요)",
+    description: "2상 침수냉각 - 컨덴서 냉각수 20°C (칠러 필요)",
     heatTransferCoeff: 15000,
     thermalResistance: 0.02,
-    basePower: 20, // Minimal pump power
-    powerPerWattTDP: 0.15, // Chiller needed for 20°C condenser water
+    basePower: 15,
+    powerPerWattTDP: 0.22, // Chiller (COP 4) + minimal circulation → PUE ~1.22
     chillerRequired: true,
     chillerCOP: 4,
     maxHeatFlux: 200,
     notes: [
-      "비등 열전달로 초고효율 냉각",
-      "컨덴서에 20°C 냉각수 공급 필요",
-      "칠러 운전으로 에너지 비용 증가",
-      "높은 과냉도로 안정적 운전",
-      "유전성 냉매 - 전기적 단락 위험 없음",
+      "자연대류로 순환 전력 최소",
+      "칠러 필요 (COP ~4)",
+      "PUE 1.20~1.25",
+      "높은 과냉도로 안정적",
     ],
   },
   {
@@ -223,46 +218,43 @@ const COOLING_METHODS: CoolingMethod[] = [
     color: "text-emerald-500",
     bgColor: "bg-emerald-500/10",
     borderColor: "border-emerald-500/30",
-    description: "2상 침수냉각 - 컨덴서 냉각수 온도 40°C (Free Cooling 가능)",
-    heatTransferCoeff: 15000, // Similar boiling HTC
+    description: "2상 침수냉각 - 컨덴서 냉각수 40°C (Free Cooling)",
+    heatTransferCoeff: 15000,
     thermalResistance: 0.02,
-    basePower: 15,
-    powerPerWattTDP: 0.02, // Minimal - free cooling via dry cooler
+    basePower: 10,
+    powerPerWattTDP: 0.03, // Dry cooler only → PUE ~1.03
     chillerRequired: false,
-    chillerCOP: 20, // Effectively free cooling
+    chillerCOP: 30,
     maxHeatFlux: 200,
     notes: [
-      "최고 수준의 에너지 효율 (PUE 1.02~1.08)",
-      "드라이쿨러로 Free Cooling 가능",
-      "냉각 에너지 90% 이상 절감",
-      "AI/HPC 고밀도 워크로드에 최적",
-      "NVIDIA 권장 방식과 유사",
+      "Free Cooling - 칠러 불필요",
+      "PUE 1.02~1.05",
+      "AI/HPC 최적",
+      "냉각 에너지 90%+ 절감",
     ],
   },
   {
     id: "passive-thermosyphon",
-    name: "Passive Thermosyphon (Heat Pipe Condenser)",
+    name: "Passive Thermosyphon (Heat Pipe)",
     shortName: "Passive",
     category: "immersion",
     icon: "container",
     color: "text-violet-500",
     bgColor: "bg-violet-500/10",
     borderColor: "border-violet-500/30",
-    description: "패시브 써모사이폰 - 히트파이프/중력순환으로 펌프 없이 냉각 (한랭 기후 최적)",
-    heatTransferCoeff: 12000, // Slightly lower than active immersion
+    description: "패시브 써모사이폰 - 중력순환, 펌프 없음 (한랭 기후 최적)",
+    heatTransferCoeff: 12000,
     thermalResistance: 0.025,
-    basePower: 5, // Only auxiliary fans if any
-    powerPerWattTDP: 0.01, // Nearly zero - passive system
+    basePower: 5,
+    powerPerWattTDP: 0.01, // Near zero → PUE ~1.01
     chillerRequired: false,
-    chillerCOP: 50, // Effectively infinite - no active cooling
-    maxHeatFlux: 150, // Limited by passive heat rejection capacity
+    chillerCOP: 100,
+    maxHeatFlux: 150,
     notes: [
-      "펌프/압축기 불필요 - 전력 소모 최소화",
-      "중력 순환으로 냉매 자연 순환",
-      "히트파이프: 모세관 작용 활용",
-      "한랭 기후(T_amb < 30°C)에서 최적",
-      "PUE 1.01~1.05 달성 가능",
-      "유지보수 최소 - 움직이는 부품 없음",
+      "펌프/압축기 불필요",
+      "PUE 1.01~1.02",
+      "한랭 기후(T<30°C) 최적",
+      "유지보수 최소",
     ],
   },
 ];
@@ -300,38 +292,20 @@ function calculateResults(
     (method.id === "passive-thermosyphon" ? Math.max(coolantTemp, ambientTemp + 5) : coolantTemp);
   const tJunction = baseTemp + tdp * method.thermalResistance;
 
-  // Calculate cooling power
+  // Calculate cooling power using powerPerWattTDP (already calibrated for each method)
   let coolingPower = method.basePower + tdp * method.powerPerWattTDP;
 
-  // For chiller-based systems, account for ambient temp
-  if (method.chillerRequired && ambientTemp > coolantTemp) {
-    // More chiller work needed when ambient is hot
-    const tempLift = ambientTemp - coolantTemp + 10; // +10 for heat exchanger delta
-    const adjustedCOP = Math.max(2, method.chillerCOP * (1 - tempLift / 50));
-    coolingPower = method.basePower + (tdp / adjustedCOP);
-  }
-
-  // For free cooling systems, check if ambient allows it
-  if (!method.chillerRequired && method.category !== "air" && method.id !== "passive-thermosyphon") {
-    if (ambientTemp > coolantTemp - 5) {
-      // Need some active cooling
-      coolingPower = method.basePower + tdp * 0.1;
-    }
-  }
-
-  // For passive thermosyphon, efficiency depends entirely on ambient temp
+  // Passive thermosyphon depends on ambient temp
   if (method.id === "passive-thermosyphon") {
     const tSat = 49; // Novec 649 saturation temp
     if (ambientTemp >= tSat - 5) {
-      // Passive system cannot reject heat - very inefficient or fails
-      coolingPower = method.basePower + tdp * 0.5; // Needs backup active cooling
+      // Too hot for passive - needs backup
+      coolingPower = method.basePower + tdp * 0.3;
     } else if (ambientTemp >= tSat - 15) {
-      // Marginal operation - some auxiliary fans needed
+      // Marginal - some fans needed
       coolingPower = method.basePower + tdp * 0.02;
-    } else {
-      // Optimal passive operation - minimal to zero power
-      coolingPower = method.basePower; // Just auxiliary fans (~5W)
     }
+    // else: optimal passive operation, use default powerPerWattTDP
   }
 
   // Calculate PUE
@@ -416,10 +390,10 @@ function InfoCard({
   );
 }
 
-function MethodIcon({ type, className }: { type: "wind" | "fan" | "pipette" | "container"; className?: string }) {
+function MethodIcon({ type, className }: { type: "wind" | "fan" | "rows3" | "container"; className?: string }) {
   if (type === "wind") return <Wind className={className} />;
   if (type === "fan") return <Fan className={className} />;
-  if (type === "pipette") return <Pipette className={className} />;
+  if (type === "rows3") return <Rows3 className={className} />;
   return <Container className={className} />;
 }
 
@@ -1174,7 +1148,7 @@ export default function ComparisonPage() {
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 rounded" style={{ backgroundColor: CATEGORY_COLORS["cold-plate"] }} />
-              <Pipette className="w-4 h-4 text-blue-500" />
+              <Rows3 className="w-4 h-4 text-blue-500" />
               <span className="text-sm">수냉 (Cold Plate)</span>
             </div>
             <div className="flex items-center gap-2">
@@ -1417,15 +1391,15 @@ export default function ComparisonPage() {
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                    <span>PUE 1.0~1.2: 매우 효율적 (침수냉각)</span>
+                    <span>PUE 1.0~1.1: 최고 효율 (Free Cooling 침수/수냉)</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-amber-500" />
-                    <span>PUE 1.2~1.5: 효율적 (최신 수냉)</span>
+                    <div className="w-3 h-3 rounded-full bg-cyan-500" />
+                    <span>PUE 1.1~1.3: 고효율 (칠러 사용 수냉/침수)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full bg-red-500" />
-                    <span>PUE 1.5~2.0: 일반적 (전통 공랭)</span>
+                    <span>PUE 1.5~2.0: 저효율 (전통 공랭)</span>
                   </div>
                 </div>
               </InfoCard>

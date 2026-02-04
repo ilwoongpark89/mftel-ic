@@ -2058,8 +2058,8 @@ export default function IntroductionPage() {
                     <tr className="border-b border-border/50">
                       <td className="py-3 px-4 font-medium">PUE 범위</td>
                       <td className="text-center py-3 px-4 text-red-500">1.5~2.0</td>
-                      <td className="text-center py-3 px-4 text-amber-500">1.1~1.4</td>
-                      <td className="text-center py-3 px-4 text-emerald-500">1.02~1.15</td>
+                      <td className="text-center py-3 px-4 text-amber-500">1.08~1.30</td>
+                      <td className="text-center py-3 px-4 text-emerald-500">1.02~1.25</td>
                     </tr>
                     <tr className="border-b border-border/50">
                       <td className="py-3 px-4 font-medium">초기 비용</td>
