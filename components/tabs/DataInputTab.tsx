@@ -330,7 +330,7 @@ export default function DataInputTab({ onSaved }: Props) {
       .filter((r) => r.tSurf !== 0 || r.qFlux !== 0)
       .map((r) => ({ tSurf: Math.round(tConv(r.tSurf) * 100) / 100, qFlux: Math.round(qConv(r.qFlux) * 1000) / 1000 }));
     if (valid.length < 2) return;
-    setChartData([...valid].sort((a, b) => a.tSurf - b.tSurf));
+    setChartData([...valid]); // 입력 순서 유지 (비등 커브용)
     setChecked(true);
     // Auto-fill name if empty
     if (!name && suggestedName) {

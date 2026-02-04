@@ -211,10 +211,9 @@ export default function DataManageTab() {
   // Export to CSV
   const exportCSV = (ds: BoilingDataset) => {
     const header = "T_surf (°C),q'' (kW/m²)\n";
-    const rows = [...ds.data]
-      .sort((a, b) => a.tSurf - b.tSurf)
+    const rows = ds.data
       .map((p) => `${p.tSurf},${p.qFlux}`)
-      .join("\n");
+      .join("\n"); // 입력 순서 유지
     const csv = header + rows;
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -612,7 +611,7 @@ export default function DataManageTab() {
                               </tr>
                             </thead>
                             <tbody>
-                              {(isEditing ? editData : [...ds.data].sort((a, b) => a.tSurf - b.tSurf)).map((p, i) => (
+                              {(isEditing ? editData : ds.data).map((p, i) => (
                                 <tr key={i} className="border-b border-gray-100">
                                   <td className="px-3 py-1 text-center font-mono text-[10px] text-gray-400 border-r border-gray-100">{i + 1}</td>
                                   {isEditing ? (
@@ -692,7 +691,7 @@ export default function DataManageTab() {
                       <div>
                         <div className={`${lbl} mb-2`}>Boiling Curve</div>
                         <ResponsiveContainer width="100%" height={280}>
-                          <LineChart data={[...(isEditing ? editData : ds.data)].sort((a, b) => a.tSurf - b.tSurf)} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+                          <LineChart data={isEditing ? editData : ds.data} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                             <XAxis dataKey="tSurf" label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" />
                             <YAxis label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" />
