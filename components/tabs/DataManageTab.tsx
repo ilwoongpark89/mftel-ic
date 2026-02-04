@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ZAxis,
 } from "recharts";
 import {
   BoilingDataset, BoilingDataPoint, ExperimentMeta, LiteratureMeta, DataBackup,
@@ -691,13 +691,14 @@ export default function DataManageTab() {
                       <div>
                         <div className={`${lbl} mb-2`}>Boiling Curve</div>
                         <ResponsiveContainer width="100%" height={280}>
-                          <LineChart data={isEditing ? editData : ds.data} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+                          <ScatterChart margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                            <XAxis dataKey="tSurf" label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" />
-                            <YAxis label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" />
-                            <Tooltip contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontFamily: "monospace", fontSize: 12 }} />
-                            <Line type="monotone" dataKey="qFlux" stroke="#0891b2" strokeWidth={2} dot={{ fill: "#0891b2", r: 4 }} />
-                          </LineChart>
+                            <XAxis type="number" dataKey="tSurf" name="T_surf" unit="°C" label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" domain={['dataMin', 'dataMax']} />
+                            <YAxis type="number" dataKey="qFlux" name="q''" unit=" kW/m²" label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" domain={['dataMin', 'dataMax']} />
+                            <ZAxis range={[50, 50]} />
+                            <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontFamily: "monospace", fontSize: 12 }} />
+                            <Scatter data={isEditing ? editData : ds.data} fill="#0891b2" line={{ stroke: "#0891b2", strokeWidth: 2 }} />
+                          </ScatterChart>
                         </ResponsiveContainer>
                       </div>
                     </div>
@@ -710,31 +711,29 @@ export default function DataManageTab() {
       </div>
 
       {/* Combined plot for selected datasets (1+) */}
-      {chartData && selectedDs.length >= 1 && (
+      {selectedDs.length >= 1 && (
         <div className="p-5 rounded-xl border bg-white border-gray-200 shadow-sm">
           <h3 className="text-sm font-bold text-cyan-600 font-mono tracking-wider mb-4">
             {">"} {selectedDs.length === 1 ? "SELECTED PLOT" : `COMPARISON (${selectedDs.length} datasets)`}
           </h3>
           <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={chartData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+            <ScatterChart margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="tSurf" label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" />
-              <YAxis label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" />
-              <Tooltip contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontFamily: "monospace", fontSize: 12 }} />
+              <XAxis type="number" dataKey="tSurf" name="T_surf" unit="°C" label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" domain={['dataMin', 'dataMax']} />
+              <YAxis type="number" dataKey="qFlux" name="q''" unit=" kW/m²" label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" domain={['dataMin', 'dataMax']} />
+              <ZAxis range={[40, 40]} />
+              <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontFamily: "monospace", fontSize: 12 }} />
               <Legend wrapperStyle={{ fontFamily: "monospace", fontSize: 11 }} />
               {selectedDs.map((ds, i) => (
-                <Line
+                <Scatter
                   key={ds.id}
-                  type="monotone"
-                  dataKey={ds.id}
                   name={ds.name}
-                  stroke={COLORS[i % COLORS.length]}
-                  strokeWidth={2}
-                  dot={{ fill: COLORS[i % COLORS.length], r: 3 }}
-                  connectNulls
+                  data={ds.data}
+                  fill={COLORS[i % COLORS.length]}
+                  line={{ stroke: COLORS[i % COLORS.length], strokeWidth: 2 }}
                 />
               ))}
-            </LineChart>
+            </ScatterChart>
           </ResponsiveContainer>
         </div>
       )}

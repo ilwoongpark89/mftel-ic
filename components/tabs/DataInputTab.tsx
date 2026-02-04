@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ZAxis,
 } from "recharts";
 import {
   Beaker, FileText, ChevronDown, ChevronUp, Upload, Image, Trash2,
@@ -746,33 +746,39 @@ export default function DataInputTab({ onSaved }: Props) {
                     <span className="ml-2 text-xs font-normal text-gray-500">({chartData.length} points)</span>
                   </h3>
                   <ResponsiveContainer width="100%" height={280}>
-                    <LineChart data={chartData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+                    <ScatterChart margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                       <XAxis
+                        type="number"
                         dataKey="tSurf"
+                        name="T_surf"
+                        unit="°C"
                         label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#6b7280", fontSize: 12 }}
                         tick={{ fill: "#6b7280", fontSize: 11 }}
                         stroke="#d1d5db"
+                        domain={['dataMin', 'dataMax']}
                       />
                       <YAxis
+                        type="number"
+                        dataKey="qFlux"
+                        name="q''"
+                        unit=" kW/m²"
                         label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#6b7280", fontSize: 12 }}
                         tick={{ fill: "#6b7280", fontSize: 11 }}
                         stroke="#d1d5db"
+                        domain={['dataMin', 'dataMax']}
                       />
+                      <ZAxis range={[60, 60]} />
                       <Tooltip
+                        cursor={{ strokeDasharray: '3 3' }}
                         contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, fontSize: 12, boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
-                        labelFormatter={(v) => `T_surf: ${v}°C`}
-                        formatter={(v) => [`${v} kW/m²`, "q''"]}
                       />
-                      <Line
-                        type="monotone"
-                        dataKey="qFlux"
-                        stroke={source === "experiment" ? "#3b82f6" : "#ec4899"}
-                        strokeWidth={3}
-                        dot={{ fill: source === "experiment" ? "#3b82f6" : "#ec4899", r: 5, strokeWidth: 2, stroke: "#fff" }}
-                        activeDot={{ r: 8, strokeWidth: 2, stroke: "#fff" }}
+                      <Scatter
+                        data={chartData}
+                        fill={source === "experiment" ? "#3b82f6" : "#ec4899"}
+                        line={{ stroke: source === "experiment" ? "#3b82f6" : "#ec4899", strokeWidth: 2 }}
                       />
-                    </LineChart>
+                    </ScatterChart>
                   </ResponsiveContainer>
                 </div>
 
