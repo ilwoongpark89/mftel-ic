@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import {
-  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ZAxis,
+  ComposedChart, Scatter, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ZAxis,
 } from "recharts";
 import {
   BoilingDataset, BoilingDataPoint, ExperimentMeta, LiteratureMeta, DataBackup,
@@ -10,6 +10,32 @@ import {
 } from "@/lib/boiling-data";
 
 const COLORS = ["#0891b2", "#059669", "#db2777", "#ca8a04", "#7c3aed", "#ea580c", "#dc2626", "#2563eb", "#65a30d", "#c026d3"];
+
+// Custom line renderer that draws lines in data entry order (not sorted by x)
+interface OrderedLineProps {
+  data: { tSurf: number; qFlux: number }[];
+  xAxisMap?: Record<string, { scale: (v: number) => number }>;
+  yAxisMap?: Record<string, { scale: (v: number) => number }>;
+  stroke: string;
+  strokeWidth?: number;
+}
+
+function OrderedLine({ data, xAxisMap, yAxisMap, stroke, strokeWidth = 2 }: OrderedLineProps) {
+  if (!data || data.length < 2 || !xAxisMap || !yAxisMap) return null;
+
+  const xScale = xAxisMap[0]?.scale || xAxisMap["0"]?.scale;
+  const yScale = yAxisMap[0]?.scale || yAxisMap["0"]?.scale;
+
+  if (!xScale || !yScale) return null;
+
+  const pathD = data.map((point, i) => {
+    const x = xScale(point.tSurf);
+    const y = yScale(point.qFlux);
+    return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+  }).join(' ');
+
+  return <path d={pathD} stroke={stroke} strokeWidth={strokeWidth} fill="none" />;
+}
 
 export default function DataManageTab() {
   const [datasets, setDatasets] = useState<BoilingDataset[]>([]);
@@ -691,14 +717,14 @@ export default function DataManageTab() {
                       <div>
                         <div className={`${lbl} mb-2`}>Boiling Curve</div>
                         <ResponsiveContainer width="100%" height={280}>
-                          <ScatterChart margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+                          <ComposedChart data={isEditing ? editData : ds.data} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                             <XAxis type="number" dataKey="tSurf" name="T_surf" unit="°C" label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" domain={['dataMin', 'dataMax']} />
                             <YAxis type="number" dataKey="qFlux" name="q''" unit=" kW/m²" label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" domain={['dataMin', 'dataMax']} />
-                            <ZAxis range={[50, 50]} />
                             <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontFamily: "monospace", fontSize: 12 }} />
-                            <Scatter data={isEditing ? editData : ds.data} fill="#0891b2" line={{ stroke: "#0891b2", strokeWidth: 2 }} />
-                          </ScatterChart>
+                            <Line type="linear" dataKey="qFlux" stroke="#0891b2" strokeWidth={2} dot={false} isAnimationActive={false} />
+                            <Scatter dataKey="qFlux" fill="#0891b2" />
+                          </ComposedChart>
                         </ResponsiveContainer>
                       </div>
                     </div>
@@ -717,23 +743,52 @@ export default function DataManageTab() {
             {">"} {selectedDs.length === 1 ? "SELECTED PLOT" : `COMPARISON (${selectedDs.length} datasets)`}
           </h3>
           <ResponsiveContainer width="100%" height={400}>
-            <ScatterChart margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+            <ComposedChart data={selectedDs[0]?.data || []} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis type="number" dataKey="tSurf" name="T_surf" unit="°C" label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" domain={['dataMin', 'dataMax']} />
-              <YAxis type="number" dataKey="qFlux" name="q''" unit=" kW/m²" label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#6b7280", fontSize: 12 }} tick={{ fill: "#6b7280", fontSize: 11 }} stroke="#d1d5db" domain={['dataMin', 'dataMax']} />
-              <ZAxis range={[40, 40]} />
+              <XAxis
+                type="number"
+                dataKey="tSurf"
+                name="T_surf"
+                unit="°C"
+                label={{ value: "T_surf (°C)", position: "insideBottom", offset: -10, fill: "#6b7280", fontSize: 12 }}
+                tick={{ fill: "#6b7280", fontSize: 11 }}
+                stroke="#d1d5db"
+                domain={[
+                  Math.min(...selectedDs.flatMap(ds => ds.data.map(p => p.tSurf))),
+                  Math.max(...selectedDs.flatMap(ds => ds.data.map(p => p.tSurf)))
+                ]}
+                allowDataOverflow
+              />
+              <YAxis
+                type="number"
+                dataKey="qFlux"
+                name="q''"
+                unit=" kW/m²"
+                label={{ value: "q'' (kW/m²)", angle: -90, position: "insideLeft", offset: -5, fill: "#6b7280", fontSize: 12 }}
+                tick={{ fill: "#6b7280", fontSize: 11 }}
+                stroke="#d1d5db"
+                domain={[
+                  Math.min(...selectedDs.flatMap(ds => ds.data.map(p => p.qFlux))),
+                  Math.max(...selectedDs.flatMap(ds => ds.data.map(p => p.qFlux)))
+                ]}
+                allowDataOverflow
+              />
               <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontFamily: "monospace", fontSize: 12 }} />
               <Legend wrapperStyle={{ fontFamily: "monospace", fontSize: 11 }} />
               {selectedDs.map((ds, i) => (
-                <Scatter
-                  key={ds.id}
-                  name={ds.name}
+                <Line
+                  key={`line-${ds.id}`}
+                  type="linear"
                   data={ds.data}
-                  fill={COLORS[i % COLORS.length]}
-                  line={{ stroke: COLORS[i % COLORS.length], strokeWidth: 2 }}
+                  dataKey="qFlux"
+                  name={ds.name}
+                  stroke={COLORS[i % COLORS.length]}
+                  strokeWidth={2}
+                  dot={{ fill: COLORS[i % COLORS.length], r: 4 }}
+                  isAnimationActive={false}
                 />
               ))}
-            </ScatterChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       )}

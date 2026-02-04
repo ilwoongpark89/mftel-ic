@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ZAxis,
+  ComposedChart, Line, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
   Beaker, FileText, ChevronDown, ChevronUp, Upload, Image, Trash2,
@@ -161,6 +161,14 @@ const SAMPLE_DATA: BoilingDataPoint[] = [
   { tSurf: 87, qFlux: 350 },
 ];
 
+// Selection types for Excel-like range selection
+interface CellSelection {
+  startRow: number;
+  startCol: number;
+  endRow: number;
+  endCol: number;
+}
+
 export default function DataInputTab({ onSaved }: Props) {
   const [source, setSource] = useState<DataSource>("experiment");
   const [name, setName] = useState("");
@@ -173,8 +181,11 @@ export default function DataInputTab({ onSaved }: Props) {
   const [qUnit, setQUnit] = useState<QUnit>("kW/m2");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<string[]>(["conditions", "modification"]);
+  const [selection, setSelection] = useState<CellSelection | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLInputElement>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
 
   // Auto-calculate surface fraction from width and spacing
   const calculatedFraction = useMemo(() => {
@@ -304,15 +315,126 @@ export default function DataInputTab({ onSaved }: Props) {
     e.target.value = "";
   };
 
-  const handlePaste = (e: React.ClipboardEvent) => {
-    const text = e.clipboardData.getData("text");
-    const points = parseCSV(text);
-    if (points.length >= 2) {
-      e.preventDefault();
-      setRows([...points, ...emptyRows(5)]);
-      invalidate();
+  // Check if a cell is within the current selection
+  const isCellSelected = useCallback((row: number, col: number) => {
+    if (!selection) return false;
+    const minRow = Math.min(selection.startRow, selection.endRow);
+    const maxRow = Math.max(selection.startRow, selection.endRow);
+    const minCol = Math.min(selection.startCol, selection.endCol);
+    const maxCol = Math.max(selection.startCol, selection.endCol);
+    return row >= minRow && row <= maxRow && col >= minCol && col <= maxCol;
+  }, [selection]);
+
+  // Handle cell mouse down for selection start
+  const handleCellMouseDown = useCallback((row: number, col: number, e: React.MouseEvent) => {
+    if (e.shiftKey && selection) {
+      // Extend selection
+      setSelection(prev => prev ? { ...prev, endRow: row, endCol: col } : null);
+    } else {
+      // Start new selection
+      setSelection({ startRow: row, startCol: col, endRow: row, endCol: col });
+      setIsSelecting(true);
     }
-  };
+  }, [selection]);
+
+  // Handle cell mouse enter for selection extension
+  const handleCellMouseEnter = useCallback((row: number, col: number) => {
+    if (isSelecting && selection) {
+      setSelection(prev => prev ? { ...prev, endRow: row, endCol: col } : null);
+    }
+  }, [isSelecting, selection]);
+
+  // Handle mouse up to end selection
+  const handleMouseUp = useCallback(() => {
+    setIsSelecting(false);
+  }, []);
+
+  // Handle copy for selected range
+  const handleCopy = useCallback((e: React.ClipboardEvent) => {
+    if (!selection) return;
+
+    const minRow = Math.min(selection.startRow, selection.endRow);
+    const maxRow = Math.max(selection.startRow, selection.endRow);
+    const minCol = Math.min(selection.startCol, selection.endCol);
+    const maxCol = Math.max(selection.startCol, selection.endCol);
+
+    const lines: string[] = [];
+    for (let r = minRow; r <= maxRow; r++) {
+      const cells: string[] = [];
+      for (let c = minCol; c <= maxCol; c++) {
+        const val = c === 0 ? rows[r]?.tSurf : rows[r]?.qFlux;
+        cells.push(val !== 0 ? String(val) : "");
+      }
+      lines.push(cells.join("\t"));
+    }
+
+    e.clipboardData.setData("text/plain", lines.join("\n"));
+    e.preventDefault();
+  }, [selection, rows]);
+
+  // Handle paste - works with Excel multi-cell paste
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData("text");
+    if (!text.trim()) return;
+
+    // Parse pasted data (tab-separated columns, newline-separated rows)
+    const pastedRows = text.trim().split(/\r?\n/).map(line => {
+      const cells = line.split(/\t|,/).map(s => s.trim());
+      return cells;
+    });
+
+    // Determine starting position - use selection start or find focused cell
+    let startRow = 0;
+    let startCol = 0;
+
+    if (selection) {
+      startRow = Math.min(selection.startRow, selection.endRow);
+      startCol = Math.min(selection.startCol, selection.endCol);
+    } else {
+      // Try to find the focused input
+      const activeEl = document.activeElement as HTMLInputElement;
+      if (activeEl?.dataset?.row !== undefined) {
+        startRow = parseInt(activeEl.dataset.row, 10);
+        startCol = activeEl.dataset.field === "tSurf" ? 0 : 1;
+      }
+    }
+
+    // If pasted data has 2+ rows or matches CSV format, fill cells from position
+    if (pastedRows.length >= 1) {
+      e.preventDefault();
+
+      setRows(prev => {
+        const newRows = [...prev];
+
+        // Ensure enough rows exist
+        const neededRows = startRow + pastedRows.length;
+        while (newRows.length < neededRows + 5) {
+          newRows.push({ tSurf: 0, qFlux: 0 });
+        }
+
+        // Fill in pasted values
+        pastedRows.forEach((pastedRow, ri) => {
+          const targetRow = startRow + ri;
+          pastedRow.forEach((val, ci) => {
+            const targetCol = startCol + ci;
+            const numVal = parseFloat(val);
+            if (!isNaN(numVal)) {
+              if (targetCol === 0) {
+                newRows[targetRow] = { ...newRows[targetRow], tSurf: numVal };
+              } else if (targetCol === 1) {
+                newRows[targetRow] = { ...newRows[targetRow], qFlux: numVal };
+              }
+            }
+          });
+        });
+
+        return newRows;
+      });
+
+      invalidate();
+      setSelection(null);
+    }
+  }, [selection, invalidate]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -642,7 +764,14 @@ export default function DataInputTab({ onSaved }: Props) {
             </div>
 
             {/* Table */}
-            <div className="max-h-[400px] overflow-y-auto" onPaste={handlePaste}>
+            <div
+              ref={tableRef}
+              className="max-h-[400px] overflow-y-auto select-none"
+              onPaste={handlePaste}
+              onCopy={handleCopy}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+            >
               <table className="w-full">
                 <thead className="sticky top-0 z-10 bg-gray-50">
                   <tr>
@@ -658,6 +787,8 @@ export default function DataInputTab({ onSaved }: Props) {
                 <tbody>
                   {rows.map((row, i) => {
                     const hasValue = row.tSurf !== 0 || row.qFlux !== 0;
+                    const isTSurfSelected = isCellSelected(i, 0);
+                    const isQFluxSelected = isCellSelected(i, 1);
                     return (
                       <tr
                         key={i}
@@ -666,10 +797,14 @@ export default function DataInputTab({ onSaved }: Props) {
                         <td className="px-4 py-1 text-center text-xs font-medium text-gray-400 border-r border-gray-100">
                           {i + 1}
                         </td>
-                        <td className="px-2 py-1 border-r border-gray-100">
+                        <td
+                          className={`px-2 py-1 border-r border-gray-100 ${isTSurfSelected ? "bg-blue-200/50" : ""}`}
+                          onMouseDown={(e) => handleCellMouseDown(i, 0, e)}
+                          onMouseEnter={() => handleCellMouseEnter(i, 0)}
+                        >
                           <input
                             type="number"
-                            className="w-full px-3 py-2 bg-transparent border-0 text-gray-900 text-sm text-center focus:outline-none focus:bg-blue-100 rounded transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            className={`w-full px-3 py-2 border-0 text-gray-900 text-sm text-center focus:outline-none rounded transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${isTSurfSelected ? "bg-blue-200/50" : "bg-transparent focus:bg-blue-100"}`}
                             value={row.tSurf || ""}
                             onChange={(e) => updateRow(i, "tSurf", e.target.value)}
                             onKeyDown={(e) => handleCellKeyDown(e, i, "tSurf")}
@@ -678,10 +813,14 @@ export default function DataInputTab({ onSaved }: Props) {
                             placeholder="—"
                           />
                         </td>
-                        <td className="px-2 py-1">
+                        <td
+                          className={`px-2 py-1 ${isQFluxSelected ? "bg-blue-200/50" : ""}`}
+                          onMouseDown={(e) => handleCellMouseDown(i, 1, e)}
+                          onMouseEnter={() => handleCellMouseEnter(i, 1)}
+                        >
                           <input
                             type="number"
-                            className="w-full px-3 py-2 bg-transparent border-0 text-gray-900 text-sm text-center focus:outline-none focus:bg-blue-100 rounded transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            className={`w-full px-3 py-2 border-0 text-gray-900 text-sm text-center focus:outline-none rounded transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${isQFluxSelected ? "bg-blue-200/50" : "bg-transparent focus:bg-blue-100"}`}
                             value={row.qFlux || ""}
                             onChange={(e) => updateRow(i, "qFlux", e.target.value)}
                             onKeyDown={(e) => handleCellKeyDown(e, i, "qFlux")}
@@ -746,7 +885,7 @@ export default function DataInputTab({ onSaved }: Props) {
                     <span className="ml-2 text-xs font-normal text-gray-500">({chartData.length} points)</span>
                   </h3>
                   <ResponsiveContainer width="100%" height={280}>
-                    <ScatterChart margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
+                    <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 20, bottom: 20 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                       <XAxis
                         type="number"
@@ -768,17 +907,20 @@ export default function DataInputTab({ onSaved }: Props) {
                         stroke="#d1d5db"
                         domain={['dataMin', 'dataMax']}
                       />
-                      <ZAxis range={[60, 60]} />
                       <Tooltip
                         cursor={{ strokeDasharray: '3 3' }}
                         contentStyle={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, fontSize: 12, boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
                       />
-                      <Scatter
-                        data={chartData}
-                        fill={source === "experiment" ? "#3b82f6" : "#ec4899"}
-                        line={{ stroke: source === "experiment" ? "#3b82f6" : "#ec4899", strokeWidth: 2 }}
+                      <Line
+                        type="linear"
+                        dataKey="qFlux"
+                        stroke={source === "experiment" ? "#3b82f6" : "#ec4899"}
+                        strokeWidth={2}
+                        dot={false}
+                        isAnimationActive={false}
                       />
-                    </ScatterChart>
+                      <Scatter dataKey="qFlux" fill={source === "experiment" ? "#3b82f6" : "#ec4899"} />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
 
