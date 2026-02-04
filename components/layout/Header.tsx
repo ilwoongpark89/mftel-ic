@@ -4,15 +4,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { motion } from "framer-motion";
-import { Sun, Moon, Menu, X, Droplets, Zap, Database, ChevronRight } from "lucide-react";
+import { Sun, Moon, Menu, X, Droplets, Zap, Database, ChevronRight, Scale, FileUp, FolderOpen, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: Zap, desc: "Cooling Analysis" },
-  { href: "/input", label: "Data Input", icon: Database, desc: "Add Experiments" },
-  { href: "/manage", label: "Manage", icon: Database, desc: "View & Compare" },
+  { href: "/introduction", label: "Introduction", icon: BookOpen, desc: "냉각 기술 개요" },
+  { href: "/comparison", label: "Comparison", icon: Scale, desc: "냉각 방식 비교" },
+  { href: "/dashboard", label: "Immersion Cooling", icon: Droplets, desc: "Boiling Analysis" },
+  { href: "/input", label: "Data Input", icon: FileUp, desc: "Add Experiments" },
+  { href: "/manage", label: "Data Manage", icon: FolderOpen, desc: "View & Export" },
 ];
 
 export default function Header() {
@@ -52,47 +54,28 @@ export default function Header() {
             </Link>
 
             {/* Desktop Navigation */}
-            {!isLanding && (
-              <nav className="hidden md:flex items-center gap-1">
-                {NAV_ITEMS.map((item) => {
-                  const isActive = pathname === item.href;
-                  return (
-                    <Link key={item.href} href={item.href}>
-                      <motion.div
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        className={cn(
-                          "flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200",
-                          isActive
-                            ? "bg-primary/15 text-primary"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                        )}
-                      >
-                        <item.icon className="h-4 w-4" />
-                        <span className="font-medium text-sm">{item.label}</span>
-                      </motion.div>
-                    </Link>
-                  );
-                })}
-              </nav>
-            )}
-
-            {/* Landing page CTA */}
-            {isLanding && (
-              <nav className="hidden md:flex items-center gap-4">
-                <Link href="/dashboard">
-                  <Button variant="ghost" className="text-muted-foreground hover:text-foreground">
-                    Dashboard
-                  </Button>
-                </Link>
-                <Link href="/dashboard">
-                  <Button className="gap-2">
-                    Get Started
-                    <ChevronRight className="h-4 w-4" />
-                  </Button>
-                </Link>
-              </nav>
-            )}
+            <nav className="hidden md:flex items-center gap-1">
+              {NAV_ITEMS.map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <Link key={item.href} href={item.href}>
+                    <motion.div
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className={cn(
+                        "flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200",
+                        isActive
+                          ? "bg-primary/15 text-primary"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                      )}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      <span className="font-medium text-sm">{item.label}</span>
+                    </motion.div>
+                  </Link>
+                );
+              })}
+            </nav>
 
             {/* Right side actions */}
             <div className="flex items-center gap-2">

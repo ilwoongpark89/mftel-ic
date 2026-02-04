@@ -70,9 +70,9 @@ export default function DashboardPage() {
           className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
         >
           <div>
-            <h1 className="text-2xl font-bold">Cooling Analysis</h1>
+            <h1 className="text-2xl font-bold">Immersion Cooling</h1>
             <p className="text-muted-foreground text-sm mt-1">
-              Calculate heat flux and compare cooling methods
+              Calculate heat flux and analyze boiling heat transfer
             </p>
           </div>
         </motion.div>
