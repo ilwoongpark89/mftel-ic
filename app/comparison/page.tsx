@@ -538,7 +538,7 @@ const HTCChart = memo(function HTCChart({ data }: { data: HTCChartData[] }) {
         />
         <Tooltip
           contentStyle={TOOLTIP_STYLE}
-          formatter={(value: number) => [`${value.toLocaleString()} W/m²K`, "열전달 계수"]}
+          formatter={(value) => [`${Number(value).toLocaleString()} W/m²K`, "열전달 계수"]}
         />
         <Bar dataKey="htc" radius={[0, 4, 4, 0]}>
           {data.map((entry, index) => (
@@ -580,7 +580,7 @@ const MaxHeatFluxChart = memo(function MaxHeatFluxChart({ data }: { data: HeatFl
         />
         <Tooltip
           contentStyle={TOOLTIP_STYLE}
-          formatter={(value: number) => [`${value} W/cm²`, "최대 Heat Flux"]}
+          formatter={(value) => [`${value} W/cm²`, "최대 Heat Flux"]}
         />
         <Bar dataKey="maxHeatFlux" radius={[0, 4, 4, 0]}>
           {data.map((entry, index) => (
