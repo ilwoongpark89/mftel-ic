@@ -17,6 +17,8 @@ import {
   Lightbulb,
   AlertTriangle,
   Leaf,
+  Pipette,
+  Container,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -43,8 +45,8 @@ interface CoolingMethod {
   id: string;
   name: string;
   shortName: string;
-  category: "air" | "cold-plate" | "immersion" | "passive";
-  icon: "wind" | "fan" | "droplets";
+  category: "air" | "cold-plate" | "immersion";
+  icon: "wind" | "fan" | "pipette" | "container";
   color: string;
   bgColor: string;
   borderColor: string;
@@ -99,8 +101,8 @@ const COOLING_METHODS: CoolingMethod[] = [
     description: "Active cooling using fans to blow air over heatsinks - the most common cooling method",
     heatTransferCoeff: 150,
     thermalResistance: 0.15,
-    basePower: 5,
-    powerPerWattTDP: 0.05, // ~5% of TDP for fan power
+    basePower: 20,
+    powerPerWattTDP: 0.45, // ~45% overhead → PUE ~1.45
     chillerRequired: false,
     chillerCOP: 1,
     maxHeatFlux: 30,
@@ -117,7 +119,7 @@ const COOLING_METHODS: CoolingMethod[] = [
     name: "단상 수냉 Cold Plate (20°C)",
     shortName: "단상 20°C",
     category: "cold-plate",
-    icon: "droplets",
+    icon: "pipette",
     color: "text-blue-500",
     bgColor: "bg-blue-500/10",
     borderColor: "border-blue-500/30",
@@ -142,7 +144,7 @@ const COOLING_METHODS: CoolingMethod[] = [
     name: "단상 수냉 Cold Plate (45°C)",
     shortName: "단상 45°C",
     category: "cold-plate",
-    icon: "droplets",
+    icon: "pipette",
     color: "text-cyan-500",
     bgColor: "bg-cyan-500/10",
     borderColor: "border-cyan-500/30",
@@ -167,7 +169,7 @@ const COOLING_METHODS: CoolingMethod[] = [
     name: "이상 수냉 Cold Plate (Pumped 2-Phase)",
     shortName: "이상 수냉",
     category: "cold-plate",
-    icon: "droplets",
+    icon: "pipette",
     color: "text-purple-500",
     bgColor: "bg-purple-500/10",
     borderColor: "border-purple-500/30",
@@ -192,7 +194,7 @@ const COOLING_METHODS: CoolingMethod[] = [
     name: "Two-Phase Immersion (Condenser 20°C)",
     shortName: "Immersion 20°C",
     category: "immersion",
-    icon: "droplets",
+    icon: "container",
     color: "text-teal-500",
     bgColor: "bg-teal-500/10",
     borderColor: "border-teal-500/30",
@@ -217,7 +219,7 @@ const COOLING_METHODS: CoolingMethod[] = [
     name: "Two-Phase Immersion (Condenser 40°C)",
     shortName: "Immersion 40°C",
     category: "immersion",
-    icon: "droplets",
+    icon: "container",
     color: "text-emerald-500",
     bgColor: "bg-emerald-500/10",
     borderColor: "border-emerald-500/30",
@@ -241,11 +243,11 @@ const COOLING_METHODS: CoolingMethod[] = [
     id: "passive-thermosyphon",
     name: "Passive Thermosyphon (Heat Pipe Condenser)",
     shortName: "Passive",
-    category: "passive",
-    icon: "droplets",
-    color: "text-purple-500",
-    bgColor: "bg-purple-500/10",
-    borderColor: "border-purple-500/30",
+    category: "immersion",
+    icon: "container",
+    color: "text-violet-500",
+    bgColor: "bg-violet-500/10",
+    borderColor: "border-violet-500/30",
     description: "패시브 써모사이폰 - 히트파이프/중력순환으로 펌프 없이 냉각 (한랭 기후 최적)",
     heatTransferCoeff: 12000, // Slightly lower than active immersion
     thermalResistance: 0.025,
@@ -295,7 +297,7 @@ function calculateResults(
   // For air cooling: T_j = T_ambient + TDP * R_th
   // For liquid: T_j = T_coolant + TDP * R_th
   const baseTemp = method.category === "air" ? ambientTemp :
-    (method.category === "passive" ? Math.max(coolantTemp, ambientTemp + 5) : coolantTemp);
+    (method.id === "passive-thermosyphon" ? Math.max(coolantTemp, ambientTemp + 5) : coolantTemp);
   const tJunction = baseTemp + tdp * method.thermalResistance;
 
   // Calculate cooling power
@@ -310,7 +312,7 @@ function calculateResults(
   }
 
   // For free cooling systems, check if ambient allows it
-  if (!method.chillerRequired && method.category !== "air" && method.category !== "passive") {
+  if (!method.chillerRequired && method.category !== "air" && method.id !== "passive-thermosyphon") {
     if (ambientTemp > coolantTemp - 5) {
       // Need some active cooling
       coolingPower = method.basePower + tdp * 0.1;
@@ -414,10 +416,11 @@ function InfoCard({
   );
 }
 
-function MethodIcon({ type, className }: { type: "wind" | "fan" | "droplets"; className?: string }) {
+function MethodIcon({ type, className }: { type: "wind" | "fan" | "pipette" | "container"; className?: string }) {
   if (type === "wind") return <Wind className={className} />;
   if (type === "fan") return <Fan className={className} />;
-  return <Droplets className={className} />;
+  if (type === "pipette") return <Pipette className={className} />;
+  return <Container className={className} />;
 }
 
 // Tooltip style - defined outside component to prevent recreation
@@ -433,7 +436,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   "air": "#f97316",       // Orange for air cooling
   "cold-plate": "#3b82f6", // Blue for cold plate
   "immersion": "#14b8a6",  // Teal for immersion
-  "passive": "#a855f7",    // Purple for passive
 };
 
 // Memoized chart component to prevent infinite re-renders
@@ -642,7 +644,6 @@ export default function ComparisonPage() {
     "air": 0,
     "cold-plate": 1,
     "immersion": 2,
-    "passive": 3
   };
 
   // Sorted results by category for display
@@ -1164,23 +1165,22 @@ export default function ComparisonPage() {
           </div>
 
           {/* Category Legend */}
-          <div className="flex flex-wrap gap-4 mb-6 p-4 rounded-lg bg-muted/30">
+          <div className="flex flex-wrap gap-6 mb-6 p-4 rounded-lg bg-muted/30">
             <span className="text-sm font-medium">카테고리:</span>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 rounded" style={{ backgroundColor: CATEGORY_COLORS["air"] }} />
+              <Fan className="w-4 h-4 text-orange-500" />
               <span className="text-sm">공랭 (Air)</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 rounded" style={{ backgroundColor: CATEGORY_COLORS["cold-plate"] }} />
+              <Pipette className="w-4 h-4 text-blue-500" />
               <span className="text-sm">수냉 (Cold Plate)</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-4 h-4 rounded" style={{ backgroundColor: CATEGORY_COLORS["immersion"] }} />
+              <Container className="w-4 h-4 text-teal-500" />
               <span className="text-sm">침수냉각 (Immersion)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded" style={{ backgroundColor: CATEGORY_COLORS["passive"] }} />
-              <span className="text-sm">패시브 (Passive)</span>
             </div>
           </div>
 
